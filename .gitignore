@@ -1,0 +1,23 @@
+# Go build output
+/bin/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Local environment and secrets (never commit real keys)
+.env
+.env.*
+!.env.example
+
+# Local Postgres data if mounted into the repo
+/data/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code local-only settings
+.claude/settings.local.json
