@@ -1,0 +1,29 @@
+# OWNERSHIP: assisted
+#
+# Local development stack. Postgres is Atlas's only source of truth, so it is
+# the only service in Slice 0. The control plane service is added in Slice 1.
+# Who uses it: `make up` / `make down` / `make migrate`.
+
+name: atlas
+
+services:
+  postgres:
+    # Pinned exact version so everyone (and CI) runs the same database.
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: atlas   # local dev only; never reuse outside this machine
+      POSTGRES_DB: atlas
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # `make migrate` waits for this so migrations never race a booting database.
+      test: ["CMD-SHELL", "pg_isready -U atlas -d atlas"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:
