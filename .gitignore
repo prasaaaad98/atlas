@@ -21,3 +21,7 @@ Thumbs.db
 
 # Claude Code local-only settings
 .claude/settings.local.json
+
+# Plans, agent guidance, ADRs and notes stay local; only the root README is published
+*.md
+!/README.md
