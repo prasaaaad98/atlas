@@ -1,0 +1,15 @@
+# TEST-ONLY dummy market (not a real market). DST zone and a resolution change
+# from 60 to 15 minutes, to exercise effective-dated interval rules.
+# The change date is illustrative only; real ENTSO-E entries come in B3 from source docs.
+registry_version: 1
+id: dummy_cet
+name: Dummy market (CET, 60 then 15 min)
+timezone: Europe/Berlin
+currency: EUR
+zones: [ZONE_A, ZONE_B]
+products:
+  DAM:
+    canonical_market: DUMMY_CET_DAM
+    intervals:
+      - {effective_from: 2024-01-01, minutes: 60}
+      - {effective_from: 2026-10-01, minutes: 15}

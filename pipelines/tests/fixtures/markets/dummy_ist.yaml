@@ -1,0 +1,12 @@
+# TEST-ONLY dummy market (not a real market). Fixed-offset zone, 15-min intervals.
+registry_version: 1
+id: dummy_ist
+name: Dummy market (IST, 15 min)
+timezone: Asia/Kolkata
+currency: INR
+zones: [SYSTEM]
+products:
+  DAM:
+    canonical_market: DUMMY_IST_DAM
+    intervals:
+      - {effective_from: 2024-01-01, minutes: 15}

@@ -1,0 +1,32 @@
+# Market registry entry: Indian Energy Exchange (IEX).
+# Versioned config: changing a value is a reviewed commit, never a code edit.
+# Loaded by pipelines/atlas_pipelines/core/markets.py.
+#
+# Values here come from PHASE_AB_PLAN.md §3.1/§3.4 (time zone, 15-minute blocks,
+# history from 2022-04-01, bid areas). Values marked null are NOT yet confirmed
+# from an official source; checks that need them fail until the owner fills
+# them in with a citation in docs/data/sources/iex.md (Slice B1).
+registry_version: 1
+id: iex
+name: Indian Energy Exchange
+timezone: Asia/Kolkata        # IST, no daylight saving
+currency: INR
+zones: [SYSTEM, A1, A2, E1, E2, N1, N2, N3, S1, S2, S3, W1, W2, W3]
+products:
+  DAM:
+    canonical_market: IEX_DAM
+    intervals:
+      # effective_from = start of the history we ingest, not the date IEX adopted 15-min blocks.
+      - {effective_from: 2022-04-01, minutes: 15}
+    price_floor: null         # TODO(owner, B1): confirm with citation
+    price_cap: null           # TODO(owner, B1): confirm current regulatory cap with citation
+    gate_closure_local: null  # TODO(B1): from IEX rules
+    publication_local: null   # TODO(B1): from measured publication times, never guessed
+  RTM:
+    canonical_market: IEX_RTM
+    intervals:
+      - {effective_from: 2022-04-01, minutes: 15}
+    price_floor: null
+    price_cap: null
+    gate_closure_local: null
+    publication_local: null
