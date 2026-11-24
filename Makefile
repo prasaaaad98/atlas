@@ -11,7 +11,7 @@ DATABASE_URL ?= postgres://atlas:atlas@localhost:5432/atlas?sslmode=disable
 MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate:v4.18.3 \
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
-.PHONY: up down reset migrate migrate-down psql build test test-race vet fmt
+.PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0
 
 up:            ## start Postgres and wait until it is healthy
 	$(COMPOSE) up -d --wait
@@ -45,3 +45,6 @@ vet:
 
 fmt:
 	gofmt -l -w .
+
+demo-a0:       ## state machine trace: lease lapses, retry succeeds, stale completion rejected
+	go test ./internal/domain -run Example -v
