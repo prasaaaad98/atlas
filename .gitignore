@@ -13,6 +13,13 @@ coverage.*
 # Local Postgres data if mounted into the repo
 /data/
 
+# Local data lake (default LAKE_ROOT) and Python environments
+/lake/
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+
 # Editors and OS
 .vscode/
 .idea/

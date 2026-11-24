@@ -1,0 +1,35 @@
+# Atlas Grid pipeline package (Phase B).
+#
+# Every dependency is pinned exactly. Notes required by CLAUDE.md
+# (need / simpler alternative rejected / license):
+#   polars 2.2.0   (MIT)        DataFrames + native Parquet writer. pandas rejected (ADR-B05).
+#                               pyarrow deliberately not added: Polars writes Parquet itself.
+#   duckdb 2.0.1   (MIT)        SQL over Parquet for the lake catalog. Polars SQL rejected:
+#                               no persistent catalog file for analysts.
+#   pyyaml 6.0.4   (MIT)        Versioned market config in config/markets/*.yaml (CLAUDE.md).
+#                               stdlib tomllib rejected only because the repo convention is YAML.
+#   tzdata 2026.6  (Apache-2.0) IANA time zones for zoneinfo; Windows has no system tz database.
+#   pytest 9.2.0   (MIT)        Tests. unittest rejected: more boilerplate for table tests.
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atlas-pipelines"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "polars==2.2.0",
+    "duckdb==2.0.1",
+    "pyyaml==6.0.4",
+    "tzdata==2026.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0"]
+
+[tool.setuptools.packages.find]
+include = ["atlas_pipelines*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
