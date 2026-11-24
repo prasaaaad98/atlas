@@ -1,6 +1,6 @@
 # OWNERSHIP: assisted
 #
-# CI runs on every push and pull request. Slice 0 acceptance: this must be green.
+# CI runs on every push and pull request. Slice A0 acceptance: Go and Python jobs green.
 # Linux runners have a C toolchain, so the race detector works here even though
 # it may not on a Windows dev machine without gcc.
 
@@ -26,3 +26,16 @@ jobs:
         run: go test ./...
       - name: test (race)
         run: go test -race ./...
+
+  pipelines:
+    # Python pipeline package: unit tests only, no network (CLAUDE.md).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install (pinned)
+        run: python -m pip install -e "pipelines[dev]"
+      - name: pytest
+        run: make pipelines-test PY=python
