@@ -3,18 +3,18 @@
 #
 # Delivery days are CET/CEST days. All starting zones (DE_LU, ES, SE3) use CET/CEST.
 # A zone in another time zone would need its own market entry.
+#
+# Provenance statuses (core/markets.py STATUSES):
+#   verified = we matched it ourselves against an independent official figure
+#   sourced  = documented by others (cited)
+#   assumed  = our reading of the data, to be confirmed
+# Anything not `verified` is flagged by a warn check on every partition.
 registry_version: 1
 id: entsoe
 name: ENTSO-E Transparency Platform (SDAC day-ahead)
 timezone: Europe/Brussels
 currency: EUR
 zones: [DE_LU, ES, SE3]
-# EIC codes per zone, used in API requests. TODO: fill from the saved fixtures'
-# in_Domain.mRID values (real source documents), not from memory.
-zone_eic:
-  DE_LU: null
-  ES: null
-  SE3: null
 products:
   DAM:
     canonical_market: ENTSOE_DAM
@@ -27,3 +27,78 @@ products:
     price_cap: null
     gate_closure_local: null   # TODO(B1): from SDAC rules, with citation
     publication_local: null    # TODO(B1): from measured publication times
+
+# ---------------------------------------------------------------------------
+# Adapter section: read and validated only by sources/entsoe/day_ahead.py.
+entsoe:
+  # EIC codes per zone, copied from the saved fixtures' in_Domain.mRID values
+  # (real documents fetched 2026-11-25), not from memory.
+  zone_eic:
+    DE_LU: 10Y1001A1001A82H
+    ES: 10YES-REE------0
+    SE3: 10Y1001A1001A46L
+
+  request:
+    document_type: A44
+    # "A01" = daily auction only. Source: voltstack.energy/insights/entsoe-api-guide
+    # (third-party guide; status sourced, not official). Whether it removes Spain's
+    # extra series is checked by re-fetching the ES fixtures with it (owner-run,
+    # make fixture-entsoe-a01); the parser selects the series either way.
+    contract_market_agreement_type: A01
+
+  # Which TimeSeries in an A44 document is the SDAC day-ahead price, per zone.
+  # A series is identified by (contract_MarketAgreement.type, classification
+  # sequence); "none" = the series carries no classificationSequence element.
+  # Selection NEVER uses position in the file, resolution or coverage: the order
+  # of series is not fixed, and in 2024 DE_LU sequence 1 was hourly while
+  # sequence 2 was quarter-hourly.
+  # `known` lists every series seen in real documents; any other series (a new
+  # auction) blocks the partition until it is reviewed and added here.
+  day_ahead_series:
+    DE_LU:
+      select: {contract: A01, sequence: 1}
+      status: sourced
+      source: >-
+        Electricity Maps parser (SDAC = classificationSequence position 1, a second
+        auction = position 2, no fixed order); another open-source project matched
+        sequence 1 against Bundesnetzagentur/Energy-Charts day-ahead prices;
+        voltstack.energy API guide (1 = SDAC, 2 = EXAA). Owner research, 2026-11-25.
+      known:
+        - {contract: A01, sequence: 1, meaning: "SDAC day-ahead"}
+        - {contract: A01, sequence: 2, meaning: "EXAA day-ahead auction (sourced: voltstack guide)"}
+    ES:
+      select: {contract: A01, sequence: none}
+      status: assumed
+      source: >-
+        Our reading of the fixtures: the only A01 (daily) series; the A07 series
+        numbered 1-3 look like the Iberian intraday auctions (IDA3 covers only
+        12:00-24:00 local). To verify: compare one day with OMIE's published
+        Spanish day-ahead price.
+      known:
+        - {contract: A01, sequence: none, meaning: "day-ahead (assumed)"}
+        - {contract: A07, sequence: 1, meaning: "intraday auction 1 (assumed)"}
+        - {contract: A07, sequence: 2, meaning: "intraday auction 2 (assumed)"}
+        - {contract: A07, sequence: 3, meaning: "intraday auction 3 (assumed)"}
+    SE3:
+      select: {contract: A01, sequence: none}
+      status: assumed
+      source: >-
+        Only series in every fixture. To verify: compare one day with an
+        independent official SE3 day-ahead figure.
+      known:
+        - {contract: A01, sequence: none, meaning: "day-ahead"}
+
+  # Late or partial publication: a 200 OK doesn't mean complete. Before the
+  # deadline a missing or short day-ahead series is a retryable failure
+  # (re-fetch with backoff); after it, a blocking check failure.
+  # The deadline is OUR policy, not a market fact: "prices for a delivery day
+  # must be complete by the start of that day". Revisit once publication times
+  # are measured (B1 acceptance) and moved to Atlas deadlines (A7).
+  publication:
+    late_after_hours_from_delivery_start: 0
+    retry: {first_after_minutes: 15, max_backoff_minutes: 120}   # applied by Atlas (A4); recorded locally
+
+  # Silent corrections: re-fetch each partition once more this many days after
+  # the delivery day, so the bronze revision check catches changes (scheduled by
+  # Atlas in A6; sources/entsoe/day_ahead.py: revision_refetch_date computes it).
+  revision_refetch_days: 3
