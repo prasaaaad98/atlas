@@ -29,6 +29,9 @@ class TaskDef:
     fn: TaskFn
     deps: tuple[str, ...] = ()
     asset_outputs: tuple[str, ...] = ()
+    # Used by Atlas only (the local runner runs each task once): how many
+    # attempts in total, including re-runs after an expired lease.
+    max_attempts: int = 1
 
 
 @dataclass(frozen=True)

@@ -63,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     wk.add_argument("--worker-id", default=None)
     wk.add_argument("--max-tasks", type=int, default=None)
     wk.add_argument("--exit-when-idle", action="store_true")
+    wk.add_argument("--lease-seconds", type=int, default=30, help="lease per claim/heartbeat (ADR-004 default 30)")
     s = sub.add_parser("show")
     s.add_argument("asset_key")
     f = sub.add_parser("fetch-fixture")
@@ -198,7 +199,7 @@ def atlas_command(args, pipelines, lake: str) -> int:
             print(f"{o.pipeline}.{o.task} {o.partition_key} attempt={o.attempt_id[:8]} -> "
                   f"{o.reported} task={o.task_status} run={o.run_status} {o.detail[:120]}")
         n = work(client, pipelines, lake, worker_id, max_tasks=args.max_tasks,
-                 exit_when_idle=args.exit_when_idle, on_outcome=show)
+                 exit_when_idle=args.exit_when_idle, lease_seconds=args.lease_seconds, on_outcome=show)
         print(f"worker {worker_id}: {n} task(s)")
         return 0
     except AtlasError as e:

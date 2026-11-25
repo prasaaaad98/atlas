@@ -140,4 +140,61 @@ def test_pipeline_definition_matches_the_go_contract(registry):
     d = pipeline_definition(p)
     assert d["partition_kind"] == "daily" and d["partition_tz"] == p.partition_tz
     assert [t["name"] for t in d["tasks"]] == [t.name for t in p.tasks]
-    assert set(d["tasks"][0]) == {"name", "deps", "asset_outputs"}
+    assert set(d["tasks"][0]) == {"name", "deps", "asset_outputs", "max_attempts"}
+
+
+class HeartbeatAtlas(FakeAtlas):
+    """Answers heartbeats; says cancel_requested after `cancel_after` beats."""
+
+    def __init__(self, claims, cancel_after=None):
+        super().__init__(claims)
+        self.cancel_after, self.beats = cancel_after, []
+
+    def send(self, method, path, body):
+        if path.endswith("/heartbeat"):
+            self.calls.append((method, path, body))
+            self.beats.append(body)
+            cancel = self.cancel_after is not None and len(self.beats) > self.cancel_after
+            return 200, {"cancel_requested": cancel}
+        return super().send(method, path, body)
+
+
+def test_checkpoint_from_claim_reaches_the_task_and_heartbeats_carry_new_ones(lake):
+    c = claim("p", "t")
+    c["checkpoint"] = {"next_chunk": 4}
+    fake = HeartbeatAtlas([c])
+    seen = []
+
+    def fn(ctx):
+        seen.append(ctx.checkpoint)
+        assert ctx.heartbeat({"next_chunk": 5}) is True
+        return [], []
+
+    run_one(AtlasClient(fake.send), one_task_pipeline(fn), lake, "w")
+    assert seen == [{"next_chunk": 4}]
+    assert fake.beats == [{"fencing_token": 1, "lease_seconds": 30, "checkpoint": {"next_chunk": 5}}]
+
+
+def test_cancel_requested_makes_heartbeat_return_false(lake):
+    fake = HeartbeatAtlas([claim("p", "t")], cancel_after=1)
+    results = []
+
+    def fn(ctx):
+        results.append(ctx.heartbeat({"i": 1}))
+        results.append(ctx.heartbeat({"i": 2}))  # Atlas: this attempt was replaced
+        return [], []
+
+    run_one(AtlasClient(fake.send), one_task_pipeline(fn), lake, "w")
+    assert results == [True, False]
+
+
+def test_chunked_demo_task_resumes_from_checkpoint(lake, monkeypatch):
+    from atlas_pipelines.defs.engine_demo import chunked
+    from atlas_pipelines.core.task import TaskContext
+    monkeypatch.setenv("ATLAS_DEMO_CHUNK_SECONDS", "0")
+    beats = []
+    ctx = TaskContext("engine_chunked", "process", DAY, "a", "b", "att", {"next_chunk": 4}, lake,
+                      lambda d: beats.append(d) or True)
+    _, [check] = chunked(ctx)
+    assert check.metrics["resumed_from"] == 4 and check.metrics["chunks_this_attempt"] == [4, 5]
+    assert beats == [{"next_chunk": 5}, {"next_chunk": 6}]

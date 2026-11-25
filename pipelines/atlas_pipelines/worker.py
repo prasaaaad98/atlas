@@ -14,6 +14,9 @@ One loop iteration (run_one):
     data interval equals the local definition's (guards against a worker
     running code that differs from what was registered).
   POST /attempts/{id}/start
+  heartbeat thread: POST /attempts/{id}/heartbeat every lease/3 (ADR-004);
+    ctx.heartbeat(details) sends a checkpoint and returns False once Atlas
+    says cancel_requested (replaced, reaped or canceled)
   call task(ctx) → verify reported files (same rules as the local runner)
   POST /attempts/{id}/complete with materializations + checks
      (Atlas decides SUCCEEDED vs data_check_failed from the blocking checks)
@@ -27,12 +30,13 @@ Invariants:
     the same report with the same token; Atlas answers a repeat as a replay.
   - Pointer files are NOT moved here: with Atlas, the current pointer lives in
     PostgreSQL (A8). Only the local runner writes local pointers.
-Not yet: heartbeats and lease extension (A3), backoff policies (A4).
+  - A lost heartbeat is not fatal: the lease (30 s) survives two missed beats.
 """
 
 from __future__ import annotations
 
 import json
+import threading
 import time
 import traceback
 import urllib.error
@@ -106,6 +110,46 @@ class AtlasClient:
 # --- definitions -----------------------------------------------------------------------
 
 
+class Heartbeater:
+    """Keeps one attempt's lease alive and carries its checkpoint.
+
+    The background thread beats every `interval` seconds with no checkpoint
+    (Atlas keeps the stored one). The task's ctx.heartbeat(details) beats at
+    once with a checkpoint. Both return/record cancel_requested.
+    """
+
+    def __init__(self, client: "AtlasClient", attempt_id: str, token: int, lease_seconds: int):
+        self.client, self.attempt_id, self.token, self.lease = client, attempt_id, token, lease_seconds
+        self.cancel_requested = threading.Event()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name=f"heartbeat-{attempt_id[:8]}")
+
+    def beat(self, checkpoint: dict | None = None) -> bool:
+        body = {"fencing_token": self.token, "lease_seconds": self.lease}
+        if checkpoint is not None:
+            body["checkpoint"] = checkpoint
+        try:
+            status, out = self.client.call("POST", f"/attempts/{self.attempt_id}/heartbeat", body)
+        except AtlasError:
+            return not self.cancel_requested.is_set()  # transport hiccup: the lease covers it
+        if status == 200 and (out or {}).get("cancel_requested"):
+            self.cancel_requested.set()
+        return not self.cancel_requested.is_set()
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self.lease / 3):
+            self.beat()
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        self._thread.join(timeout=5)
+        return False
+
+
 def pipeline_definition(p: Pipeline) -> dict:
     """The JSON Atlas stores for a pipeline (POST /pipelines)."""
     return {
@@ -113,7 +157,8 @@ def pipeline_definition(p: Pipeline) -> dict:
         "partition_kind": "daily",
         "partition_tz": p.partition_tz,
         "tasks": [
-            {"name": t.name, "deps": list(t.deps), "asset_outputs": list(t.asset_outputs)}
+            {"name": t.name, "deps": list(t.deps), "asset_outputs": list(t.asset_outputs),
+             "max_attempts": t.max_attempts}
             for t in p.tasks
         ],
     }
@@ -140,7 +185,7 @@ def _iso(value: str) -> str:
 
 
 def run_one(client: AtlasClient, pipelines: dict[str, Pipeline], lake_root: str, worker_id: str,
-            lease_seconds: int = 300) -> Outcome | None:
+            lease_seconds: int = 30) -> Outcome | None:
     status, claim = client.call("POST", "/claim", {"worker_id": worker_id, "lease_seconds": lease_seconds})
     if status == 204:
         return None
@@ -173,14 +218,16 @@ def run_one(client: AtlasClient, pipelines: dict[str, Pipeline], lake_root: str,
             return Outcome(**base, reported="stale", task_status=None, run_status=None, detail=str(e))
         raise
 
+    hb = Heartbeater(client, aid, token, lease_seconds)
     ctx = TaskContext(
         pipeline=claim["pipeline"], task=claim["task"], partition_key=claim["partition_key"],
         data_interval_start=local[0], data_interval_end=local[1], attempt_id=aid,
         checkpoint=claim.get("checkpoint"), lake_root=lake_root,
-        heartbeat=lambda details: True,  # A3 sends heartbeats and returns cancel_requested
+        heartbeat=hb.beat,
     )
     try:
-        mats, checks = tdef.fn(ctx)
+        with hb:
+            mats, checks = tdef.fn(ctx)
         _verify(tdef.asset_outputs, claim["partition_key"], lake_root, mats)
     except RetryableTaskError as e:
         outcome = "unknown" if e.error_class == "network" else "failed_definite"
@@ -209,11 +256,12 @@ def _report(client: AtlasClient, aid: str, kind: str, body: dict, base: dict, de
 
 def work(client: AtlasClient, pipelines: dict[str, Pipeline], lake_root: str, worker_id: str, *,
          max_tasks: int | None = None, exit_when_idle: bool = False, poll_seconds: float = 2.0,
+         lease_seconds: int = 30,
          on_outcome: Callable[[Outcome], None] = lambda o: None, sleep=time.sleep) -> int:
     """Claim and run tasks until max_tasks is reached, or the queue is empty and exit_when_idle."""
     done = 0
     while max_tasks is None or done < max_tasks:
-        out = run_one(client, pipelines, lake_root, worker_id)
+        out = run_one(client, pipelines, lake_root, worker_id, lease_seconds)
         if out is None:
             if exit_when_idle:
                 break
