@@ -51,15 +51,16 @@ func (s *Store) reapOne(ctx context.Context) (bool, error) {
 	var taskID, runID, attemptID string
 	var status string
 	var attempts, maxAttempts int
+	var policyRaw []byte
 	// Database clock only (ADR-004). SKIP LOCKED: a task whose row is locked
 	// right now is being reported on; never wait for it.
 	err = tx.QueryRow(ctx, `
-		SELECT id, run_id, current_attempt_id, status, attempt_count, max_attempts
+		SELECT id, run_id, current_attempt_id, status, attempt_count, max_attempts, retry_policy
 		FROM tasks
 		WHERE status IN ('LEASED', 'RUNNING') AND lease_expires_at < now()
 		ORDER BY lease_expires_at
 		LIMIT 1
-		FOR NO KEY UPDATE SKIP LOCKED`).Scan(&taskID, &runID, &attemptID, &status, &attempts, &maxAttempts)
+		FOR NO KEY UPDATE SKIP LOCKED`).Scan(&taskID, &runID, &attemptID, &status, &attempts, &maxAttempts, &policyRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -79,9 +80,16 @@ func (s *Store) reapOne(ctx context.Context) (bool, error) {
 		WHERE id = $1`, attemptID); err != nil {
 		return false, err
 	}
+	policy, err := decodePolicy(policyRaw)
+	if err != nil {
+		return false, err
+	}
+	delay := policy.Backoff(attempts, s.jitter(), 0).Seconds()
 	if _, err := tx.Exec(ctx, `
-		UPDATE tasks SET status = $2, current_attempt_id = NULL, lease_expires_at = NULL, updated_at = now()
-		WHERE id = $1`, taskID, string(next)); err != nil {
+		UPDATE tasks SET status = $2, current_attempt_id = NULL, lease_expires_at = NULL,
+		       available_at = CASE WHEN $2 = 'READY' THEN now() + make_interval(secs => $3) ELSE available_at END,
+		       updated_at = now()
+		WHERE id = $1`, taskID, string(next), delay); err != nil {
 		return false, err
 	}
 	if err := taskEvent(ctx, tx, runID, taskID, "task.lease_expired", map[string]any{

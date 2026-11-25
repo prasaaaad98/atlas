@@ -216,6 +216,7 @@ type heldTask struct {
 	attemptStatus  string
 	attemptToken   int64
 	leaseLive      bool // lease_expires_at > now() on the database clock
+	policy         domain.RetryPolicy
 }
 
 // lockByAttempt locks the task row an attempt belongs to (lock order: task first).
@@ -225,19 +226,24 @@ func lockByAttempt(ctx context.Context, tx pgx.Tx, attemptID string) (heldTask, 
 	}
 	var h heldTask
 	var st string
+	var policy []byte
 	err := tx.QueryRow(ctx, `
 		SELECT t.id, t.run_id, t.status, t.current_attempt_id, t.fencing_token, t.max_attempts,
 		       a.attempt_number, a.status, a.fencing_token,
-		       coalesce(t.lease_expires_at > now(), false)
+		       coalesce(t.lease_expires_at > now(), false), t.retry_policy
 		FROM task_attempts a JOIN tasks t ON t.id = a.task_id
 		WHERE a.id = $1
 		FOR NO KEY UPDATE OF t`, attemptID,
 	).Scan(&h.taskID, &h.runID, &st, &h.currentAttempt, &h.token, &h.maxAttempts,
-		&h.attemptNumber, &h.attemptStatus, &h.attemptToken, &h.leaseLive)
+		&h.attemptNumber, &h.attemptStatus, &h.attemptToken, &h.leaseLive, &policy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return heldTask{}, fmt.Errorf("attempt %s: %w", attemptID, ErrNotFound)
 	}
+	if err != nil {
+		return heldTask{}, err
+	}
 	h.status = domain.State(st)
+	h.policy, err = decodePolicy(policy)
 	return h, err
 }
 
@@ -379,28 +385,33 @@ func (s *Store) Fail(ctx context.Context, attemptID string, req FailRequest) (At
 		return AttemptResult{}, fmt.Errorf("%w: fail needs error_class, outcome in succeeded|failed_definite|unknown, retry_after_seconds 0..86400", ErrInvalid)
 	}
 	return s.transition(ctx, attemptID, req.FencingToken, "FAILED", func(ctx context.Context, tx pgx.Tx, h heldTask) (domain.State, error) {
-		// The attempt number comes from the locked row, so AttemptsRemain can't be stale.
-		ev := domain.FailEvent(h.attemptNumber, h.maxAttempts, req.Retryable)
+		// Classifier (ADR-005): the worker's hint, vetoed by terminal error
+		// classes and the task's policy. The attempt number comes from the
+		// locked row, so AttemptsRemain can't be stale.
+		retryable := h.policy.Retryable(req.ErrorClass, req.Retryable)
+		ev := domain.FailEvent(h.attemptNumber, h.maxAttempts, retryable)
 		next, err := domain.Next(h.status, ev)
 		if err != nil {
 			return "", err
 		}
+		delay := h.policy.Backoff(h.attemptNumber, s.jitter(), req.RetryAfterSeconds).Seconds()
 		_, err = tx.Exec(ctx, `
 			UPDATE task_attempts SET status = 'FAILED', outcome = $2, error_class = $3, error_detail = $4,
 			       retryable = $5, finished_at = now()
-			WHERE id = $1`, attemptID, req.Outcome, req.ErrorClass, truncate(req.Detail, 8000), req.Retryable)
+			WHERE id = $1`, attemptID, req.Outcome, req.ErrorClass, truncate(req.Detail, 8000), retryable)
 		if err == nil {
-			// Retry: READY again, not before retry_after (backoff policies arrive in A4).
+			// Retry: READY again, claimable only after the backoff (database clock).
 			_, err = tx.Exec(ctx, `
 				UPDATE tasks SET status = $2, current_attempt_id = NULL, lease_expires_at = NULL,
 				       available_at = CASE WHEN $2 = 'READY' THEN now() + make_interval(secs => $3) ELSE available_at END,
 				       updated_at = now()
-				WHERE id = $1`, h.taskID, string(next), req.RetryAfterSeconds)
+				WHERE id = $1`, h.taskID, string(next), delay)
 		}
 		if err == nil {
 			err = taskEvent(ctx, tx, h.runID, h.taskID, "task.failed", map[string]any{
 				"attempt_id": attemptID, "error_class": req.ErrorClass, "outcome": req.Outcome,
-				"retryable": req.Retryable, "next_state": next})
+				"worker_retryable": req.Retryable, "retryable": retryable, "next_state": next,
+				"retry_in_seconds": map[bool]any{true: delay, false: nil}[next == domain.Ready]})
 		}
 		return next, err
 	})
@@ -482,6 +493,12 @@ func syncRunStatus(ctx context.Context, tx pgx.Tx, runID string) (domain.RunStat
 	if err != nil {
 		return "", err
 	}
+	// A run that has started stays RUNNING while a task waits for a retry:
+	// DeriveRunStatus sees only states, and a re-queued task looks READY like
+	// one that never ran.
+	if derived == domain.RunPending && current == string(domain.RunRunning) {
+		derived = domain.RunRunning
+	}
 	if string(derived) != current {
 		if _, err := tx.Exec(ctx, `UPDATE workflow_runs SET status = $2, updated_at = now() WHERE id = $1`,
 			runID, string(derived)); err != nil {
@@ -509,6 +526,16 @@ func taskEvent(ctx context.Context, tx pgx.Tx, runID, taskID, typ string, payloa
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO events (run_id, task_id, type, payload) VALUES ($1, $2, $3, $4)`, runID, taskID, typ, b)
 	return err
+}
+
+// decodePolicy reads tasks.retry_policy; NULL means the default policy.
+func decodePolicy(raw []byte) (domain.RetryPolicy, error) {
+	if raw == nil {
+		return domain.DefaultRetryPolicy, nil
+	}
+	var p domain.RetryPolicy
+	err := json.Unmarshal(raw, &p)
+	return p, err
 }
 
 func truncate(s string, n int) string {

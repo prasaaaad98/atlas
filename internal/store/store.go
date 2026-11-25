@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"regexp"
 	"slices"
 	"time"
@@ -49,7 +50,12 @@ const defaultTenant = "default"
 
 var uuidRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-type Store struct{ pool *pgxpool.Pool }
+type Store struct {
+	pool *pgxpool.Pool
+	// jitter returns a uniform value in [0, 1) for full-jitter backoff
+	// (domain.RetryPolicy.Backoff). Tests may replace it.
+	jitter func() float64
+}
 
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	pool, err := pgxpool.New(ctx, databaseURL)
@@ -60,7 +66,7 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &Store{pool: pool}, nil
+	return &Store{pool: pool, jitter: rand.Float64}, nil
 }
 
 func (s *Store) Close() { s.pool.Close() }
@@ -348,10 +354,14 @@ func (s *Store) submitTx(ctx context.Context, req SubmitRequest, hash string) (R
 		}
 		maxAttempts := max(t.MaxAttempts, 1)
 		var id string
+		var policy []byte // NULL = domain.DefaultRetryPolicy
+		if t.Retry != nil {
+			policy, _ = json.Marshal(t.Retry)
+		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO tasks (run_id, name, status, priority_class, deadline_at, max_attempts, asset_outputs)
-			VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-			run.ID, t.Name, string(st), run.PriorityClass, run.DeadlineAt, maxAttempts, nonNil(t.AssetOutputs),
+			INSERT INTO tasks (run_id, name, status, priority_class, deadline_at, max_attempts, asset_outputs, retry_policy)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+			run.ID, t.Name, string(st), run.PriorityClass, run.DeadlineAt, maxAttempts, nonNil(t.AssetOutputs), policy,
 		).Scan(&id); err != nil {
 			return Run{}, false, err
 		}

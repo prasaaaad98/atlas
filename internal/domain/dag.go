@@ -32,7 +32,9 @@ type TaskSpec struct {
 	Name         string   `json:"name"`
 	Deps         []string `json:"deps,omitempty"`
 	AssetOutputs []string `json:"asset_outputs,omitempty"`
-	MaxAttempts  int      `json:"max_attempts,omitempty"` // 0 means 1; retry policies arrive in A4
+	MaxAttempts  int      `json:"max_attempts,omitempty"` // 0 means 1 (no retry)
+	// Retry policy (A4); nil means DefaultRetryPolicy.
+	Retry *RetryPolicy `json:"retry,omitempty"`
 }
 
 // ValidateDAG checks names, dependencies and acyclicity.
@@ -48,8 +50,13 @@ func ValidateDAG(tasks []TaskSpec) error {
 		if _, dup := deps[t.Name]; dup {
 			return fmt.Errorf("%w: duplicate task %q", ErrInvalidDefinition, t.Name)
 		}
-		if t.MaxAttempts < 0 {
-			return fmt.Errorf("%w: task %q max_attempts < 0", ErrInvalidDefinition, t.Name)
+		if t.MaxAttempts < 0 || t.MaxAttempts > 100 {
+			return fmt.Errorf("%w: task %q max_attempts must be 0..100", ErrInvalidDefinition, t.Name)
+		}
+		if t.Retry != nil {
+			if err := t.Retry.Validate(); err != nil {
+				return fmt.Errorf("task %q: %w", t.Name, err)
+			}
 		}
 		for _, a := range t.AssetOutputs {
 			if !assetKeyRE.MatchString(a) {

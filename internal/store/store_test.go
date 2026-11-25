@@ -25,6 +25,9 @@ func newStore(t *testing.T) *Store {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(s.Close)
+	// No jitter by default: a retry is claimable at once, so tests don't sleep.
+	// Backoff timing itself is tested in TestFailBackoffFollowsPolicy and internal/domain.
+	s.jitter = func() float64 { return 0 }
 	return s
 }
 
