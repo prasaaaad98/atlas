@@ -1,0 +1,12 @@
+# Special days for market 'iex' (B4e): days that move demand or prices but are not
+# public holidays in the `holidays` library (e.g. bridge days, festivals, ad-hoc
+# holidays declared at short notice). OWNER-CURATED: never invented.
+#
+# Each entry:
+#   - date: YYYY-MM-DD            local date
+#     name: text
+#     zones: [ZONE, ...] | all    registry zones with a calendar (see config/markets/iex.yaml)
+#     source: text                citation: official notice, URL, gazette reference
+#     announced_on: YYYY-MM-DD    when it became known (point-in-time: not usable before this date)
+version: 1
+special_days: []

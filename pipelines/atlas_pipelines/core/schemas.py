@@ -71,6 +71,24 @@ DAILY_SPREADS: dict[str, tuple[pl.DataType, bool]] = {
 }
 
 
+# silver.calendar (B4e; PHASE_AB_PLAN.md §3.3). Key (market, zone, local_date).
+# special_day_source and provenance are lineage additions to the plan's columns.
+CALENDAR: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, False),
+    "local_date": (pl.Date, False),
+    "is_weekend": (pl.Boolean, False),
+    "is_public_holiday": (pl.Boolean, False),
+    "holiday_name": (pl.String, True),
+    "is_special_day": (pl.Boolean, False),
+    "special_day_name": (pl.String, True),
+    "special_day_announced_on": (pl.Date, True),   # point-in-time (§3.4a): not usable before this date
+    "special_day_source": (pl.String, True),       # the owner's citation
+    "dst_transition": (pl.String, False),          # none | short | long, from the zone's local time zone
+    "provenance": (pl.String, False),              # holidays version + special-day file hash
+}
+
+
 def empty_frame(schema: dict) -> pl.DataFrame:
     return pl.DataFrame(schema={c: t for c, (t, _) in schema.items()})
 

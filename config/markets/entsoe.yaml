@@ -102,3 +102,17 @@ entsoe:
   # the delivery day, so the bronze revision check catches changes (scheduled by
   # Atlas in A6; sources/entsoe/day_ahead.py: revision_refetch_date computes it).
   revision_refetch_days: 3
+
+# ---------------------------------------------------------------------------
+# Calendar (B4e, shared code: sources/calendar/build.py). One calendar per zone.
+# Public holidays from the pinned `holidays` library; special days from
+# config/calendar/entsoe.yaml. weekend: ISO weekdays (Mon=1 … Sun=7).
+# DE_LU spans Germany's Länder and Luxembourg: national German holidays only
+# (Land-level and Luxembourg holidays not represented). Status assumed: a choice
+# for the owner to confirm (e.g. add a "share of load on holiday" column later).
+calendar:
+  weekend: [6, 7]
+  zones:
+    DE_LU: {country: DE, subdivision: null, status: assumed}
+    ES: {country: ES, subdivision: null, status: assumed}   # national; regional (comunidad) holidays not represented
+    SE3: {country: SE, subdivision: null, status: assumed}

@@ -56,3 +56,19 @@ eia:
   # not publish when a BA issued its day-ahead forecast. Placeholder, to be set
   # with a cited basis in E2; until then backtests use fetched_at_utc only.
   forecast_availability: {rule: null, status: assumed}
+
+# ---------------------------------------------------------------------------
+# Calendar (B4e, sources/calendar/build.py). Local dates in each BA's zone (the
+# market partitions by UTC); `tz` must equal eia.bas.<code>.tz (tested).
+# Single-state BAs use that state's holidays (federal + state); multi-state BAs
+# use federal holidays only. Status assumed: a choice for the owner to confirm.
+calendar:
+  weekend: [6, 7]
+  zones:
+    CISO: {country: US, subdivision: CA, tz: America/Los_Angeles, status: assumed}
+    ERCO: {country: US, subdivision: TX, tz: America/Chicago, status: assumed}
+    PJM:  {country: US, subdivision: null, tz: America/New_York, status: assumed}
+    MISO: {country: US, subdivision: null, tz: America/Chicago, status: assumed}
+    NYIS: {country: US, subdivision: NY, tz: America/New_York, status: assumed}
+    ISNE: {country: US, subdivision: null, tz: America/New_York, status: assumed}
+    SWPP: {country: US, subdivision: null, tz: America/Chicago, status: assumed}

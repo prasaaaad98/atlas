@@ -63,3 +63,13 @@ products:
       source: "IEX Annual Report FY25-26 (NSE filing IEX_14082026...AR_FY25_26.pdf)"  # TODO(owner): full file name
     gate_closure_local: null
     publication_local: null
+
+# ---------------------------------------------------------------------------
+# Calendar (B4e, sources/calendar/build.py). Bid areas span several states, so
+# one national calendar on SYSTEM (PHASE_AB_PLAN.md §3.3). The `holidays`
+# library's India set holds the national holidays; festivals (Diwali, Holi, …)
+# that drive demand belong in config/calendar/iex.yaml, owner-curated with sources.
+calendar:
+  weekend: [6, 7]
+  zones:
+    SYSTEM: {country: IN, subdivision: null, status: assumed}

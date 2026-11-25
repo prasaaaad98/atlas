@@ -9,6 +9,11 @@
 #   pyyaml 6.0.4   (MIT)        Versioned market config in config/markets/*.yaml (CLAUDE.md).
 #                               stdlib tomllib rejected only because the repo convention is YAML.
 #   tzdata 2026.6  (Apache-2.0) IANA time zones for zoneinfo; Windows has no system tz database.
+#   holidays 0.108 (MIT)        Public holidays per country/subdivision for silver.calendar (B4e).
+#                               Hand-maintained holiday tables rejected: moving holidays (Easter,
+#                               Thanksgiving, observed-day rules) are error-prone to hand-code.
+#                               0.109 skipped: under two weeks old when pinned (2026-11-26).
+#   python-dateutil 2.9.0.post0 (BSD-3-Clause / Apache-2.0)  required by holidays; pinned for reproducibility.
 #   pytest 9.2.0   (MIT)        Tests. unittest rejected: more boilerplate for table tests.
 [build-system]
 requires = ["setuptools>=69"]
@@ -23,6 +28,8 @@ dependencies = [
     "duckdb==2.0.1",
     "pyyaml==6.0.4",
     "tzdata==2026.6",
+    "holidays==0.108",
+    "python-dateutil==2.9.0.post0",
 ]
 
 [project.optional-dependencies]

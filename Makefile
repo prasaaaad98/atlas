@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia
+	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -112,6 +112,14 @@ b7-schedule:   ## OWNER-RUN: leave running; daily 12:00 Brussels fetch of the ne
 
 fixture-eia:   ## OWNER-RUN (network, EIA_API_KEY in .env): EIA reachability, key placement, route discovery, raw fixtures (E0)
 	$(PY) scripts/eia_reachability.py
+
+calendar:      ## build silver.calendar for every market, 2022 through next year (offline)
+	@for y in $$(seq 2022 $$(( $$(date +%Y) + 1 ))); do $(ATLAS) run calendar_build --partition $$y-01-01 | grep -E '^run|FAIL'; done
+	$(ATLAS) catalog
+
+demo-b4e:      ## calendar: build 2022..next year, then show 2026 holidays, weekends and DST days per zone
+	$(MAKE) calendar
+	$(PY) scripts/calendar_show.py 2026 $(or $(LAKE_ROOT),lake)
 
 FAULT_TESTS = ^(TestKillAfterAckRunIsDurable|TestConcurrentDuplicateSubmitsCreateOneRun|TestConcurrentDifferentKeysOneWinner|TestConcurrentClaimersNeverDoubleClaim|TestConcurrentLastCompletionsFinishTheRun|TestStaleTokenAndReplacedAttemptAreRejected|TestCrashedWorkerTaskIsReRun|TestPausedWorkerCannotOverwriteNewAttempt|TestExpiredLeaseIsFencedBeforeTheReaperRuns|TestReaperSkipsALockedTask|TestExpiriesCountAsAttempts|TestHundredPartitionsWithRandomWorkerDeaths|TestConcurrentParentCompletionsReadyTheChild|TestLimitKeyConcurrencyNeverExceeded|TestRateLimitedFailurePausesKeyAndRecovers|TestTickCrashOrOverlapCreatesEachPartitionOnce|TestEveryLateRunHasExactlyOneMissedEvent|TestFencedOutAttemptsOutputNeverBecomesCurrent|TestFailedBlockingCheckLeavesPointerAndCancelsDependents|TestLongPollClaimWakesOnNotify)$$
 fault:         ## every crash/race/stale-worker/fault scenario in one command (Go with -race, then Python)
