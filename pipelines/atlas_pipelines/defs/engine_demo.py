@@ -17,6 +17,10 @@ Who calls it: defs/__init__.py; scripts/demo-a*.sh run them through workers.
   engine_quick     one 50 ms task (A6 schedules and backfills).
   engine_slow      one 4 s task, declared estimate 4 s (A7 EDF, at-risk and misses).
   engine_strict    like engine_slow with late_policy=cancel and fallback engine_quick (A7).
+  engine_assets    writes a small real file per attempt and reports it as asset
+                   demo.engine_assets; its blocking check fails for partitions
+                   listed in ATLAS_DEMO_FAIL_PARTITIONS. Freshness: every minute,
+                   tomorrow's partition must be fresh (A8).
 Timing knob: ATLAS_DEMO_CHUNK_SECONDS (default 1.0) per chunk.
 """
 
@@ -65,6 +69,22 @@ def sleeper(seconds: float):
     return fn
 
 
+def assets_task(ctx: TaskContext):
+    import json as _json
+
+    from atlas_pipelines.core.hashing import sha256_file
+    from atlas_pipelines.core.lake import attempt_dir, relative_uri, write_bytes_atomic
+    from atlas_pipelines.core.task import Materialization
+
+    body = _json.dumps({"partition": ctx.partition_key, "attempt": ctx.attempt_id}).encode()
+    path = attempt_dir(ctx.lake_root, "demo", "engine_assets", "date", ctx.partition_key, ctx.attempt_id) / "data.json"
+    write_bytes_atomic(path, body)
+    bad = ctx.partition_key in os.environ.get("ATLAS_DEMO_FAIL_PARTITIONS", "").split(",")
+    mat = Materialization("demo.engine_assets", ctx.partition_key, relative_uri(ctx.lake_root, path), 1,
+                          sha256_file(path), "engine_assets-1", "engine_demo-1")
+    return [mat], [CheckResult("demo_check", "blocking", not bad, {"forced_failure": bad})]
+
+
 DEMO_RETRY = {"initial_interval_seconds": 2, "backoff_coefficient": 2, "max_interval_seconds": 10}
 
 
@@ -90,6 +110,10 @@ def engine_demo_pipelines() -> list[Pipeline]:
                  deadline={"relative_to": "partition_end", "offset_minutes": 0, "late_policy": "cancel",
                            "fallback_pipeline": "engine_quick"},
                  description="Engine demo (A7): cancel on a missed deadline, fall back to engine_quick"),
+        Pipeline("engine_assets", "UTC", (TaskDef("build", assets_task, asset_outputs=("demo.engine_assets",)),),
+                 freshness={"demo.engine_assets": {"deadline_cron": "* * * * *", "tz": "UTC",
+                                                   "expected_partition_offset": 1, "severity": "warn"}},
+                 description="Engine demo (A8): real file per attempt, check-gated pointer, freshness"),
         Pipeline("engine_limited", "UTC", (TaskDef("fetch", sleeper(0.5), limit_key="demo_one"),),
                  description="Engine demo (A5): limit key demo_one, concurrency 1"),
     ]

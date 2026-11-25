@@ -157,6 +157,7 @@ def pipeline_definition(p: Pipeline) -> dict:
         "partition_kind": "daily",
         "partition_tz": p.partition_tz,
         **({"deadline": p.deadline} if p.deadline else {}),
+        **({"freshness": p.freshness} if p.freshness else {}),
         "tasks": [
             {"name": t.name, "deps": list(t.deps), "asset_outputs": list(t.asset_outputs),
              "max_attempts": t.max_attempts, **({"retry": t.retry} if t.retry else {}),

@@ -55,6 +55,9 @@ class Pipeline:
     # "partition_end", "offset_minutes": int, "late_policy": "continue" |
     # "cancel", "fallback_pipeline": name}. None = no deadline.
     deadline: dict | None = None
+    # Atlas freshness policies per produced asset (A8, ADR-013):
+    # {asset_key: {"deadline_cron", "tz", "expected_partition_offset", "severity"}}.
+    freshness: dict | None = None
     order: tuple[str, ...] = field(init=False)
 
     def __post_init__(self) -> None:
