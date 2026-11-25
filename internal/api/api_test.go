@@ -121,7 +121,7 @@ func TestWorkerEndpointsContract(t *testing.T) {
 	if code, body := call(t, srv, "POST", "/attempts/"+id+"/fail", `{"fencing_token":1,"error_class":"x"}`); code != 400 {
 		t.Errorf("fail without outcome: %d %v", code, body)
 	}
-	if code, body := call(t, srv, "POST", "/attempts/"+id+"/complete", `{"fencing_token":1,"checks":[{"check_name":"c","severity":"blocking","passed":true}],"materializations":[{"asset_key":"bronze.x"}]}`); code != 200 || body["task_status"] != "SUCCEEDED" {
+	if code, body := call(t, srv, "POST", "/attempts/"+id+"/complete", `{"fencing_token":1,"checks":[{"check_name":"c","severity":"blocking","passed":true}],"materializations":[]}`); code != 200 || body["task_status"] != "SUCCEEDED" {
 		t.Errorf("complete: %d %v", code, body)
 	}
 	if code, body := call(t, srv, "POST", "/attempts/"+id+"/complete", `{"fencing_token":1}`); code != 200 || body["replay"] != true {

@@ -219,7 +219,9 @@ type StartRequest struct {
 type CompleteRequest struct {
 	FencingToken int64 `json:"fencing_token"`
 	// Recorded in the task.completed event until the assets tables arrive (A8).
-	Materializations []json.RawMessage `json:"materializations"`
+	// Recorded in the fenced transaction (A8); the pointer moves only if no
+	// blocking check failed.
+	Materializations []Materialization `json:"materializations"`
 	Checks           []CheckResult     `json:"checks"`
 }
 
@@ -254,6 +256,8 @@ type heldTask struct {
 	leaseLive      bool // lease_expires_at > now() on the database clock
 	policy         domain.RetryPolicy
 	limitKey       *string
+	assetOutputs   []string
+	partitionKey   string
 }
 
 // lockByAttempt locks the task row an attempt belongs to (lock order: task first).
@@ -267,12 +271,12 @@ func lockByAttempt(ctx context.Context, tx pgx.Tx, attemptID string) (heldTask, 
 	err := tx.QueryRow(ctx, `
 		SELECT t.id, t.run_id, t.status, t.current_attempt_id, t.fencing_token, t.max_attempts,
 		       a.attempt_number, a.status, a.fencing_token,
-		       coalesce(t.lease_expires_at > now(), false), t.retry_policy, t.limit_key
-		FROM task_attempts a JOIN tasks t ON t.id = a.task_id
+		       coalesce(t.lease_expires_at > now(), false), t.retry_policy, t.limit_key, t.asset_outputs, r.partition_key
+		FROM task_attempts a JOIN tasks t ON t.id = a.task_id JOIN workflow_runs r ON r.id = t.run_id
 		WHERE a.id = $1
 		FOR NO KEY UPDATE OF t`, attemptID,
 	).Scan(&h.taskID, &h.runID, &st, &h.currentAttempt, &h.token, &h.maxAttempts,
-		&h.attemptNumber, &h.attemptStatus, &h.attemptToken, &h.leaseLive, &policy, &h.limitKey)
+		&h.attemptNumber, &h.attemptStatus, &h.attemptToken, &h.leaseLive, &policy, &h.limitKey, &h.assetOutputs, &h.partitionKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return heldTask{}, fmt.Errorf("attempt %s: %w", attemptID, ErrNotFound)
 	}
@@ -387,14 +391,21 @@ func (s *Store) Complete(ctx context.Context, attemptID string, req CompleteRequ
 		// Re-fetching identical bad data won't fix it: terminal, no retry (ADR-003).
 		ev, attemptStatus = domain.EvCompleteCheckFailed, "CHECK_FAILED"
 	}
-	return s.transition(ctx, attemptID, req.FencingToken, attemptStatus, func(ctx context.Context, tx pgx.Tx, h heldTask) (domain.State, error) {
-		next, err := domain.Next(h.status, ev)
-		if err != nil {
-			return "", err
-		}
+	var invalid string
+	res, err := s.transition(ctx, attemptID, req.FencingToken, attemptStatus, func(ctx context.Context, tx pgx.Tx, h heldTask) (domain.State, error) {
 		errClass := any(nil)
 		if len(failed) > 0 {
 			errClass = "data_check_failed"
+		}
+		// Outputs must be the task's declared assets for this run's partition;
+		// otherwise nothing is recorded and the task fails (never retried: the
+		// same code would report the same thing).
+		if invalid = validateMaterializations(req.Materializations, h.assetOutputs, h.partitionKey); invalid != "" {
+			ev, attemptStatus, errClass = domain.EvCompleteCheckFailed, "CHECK_FAILED", "materialization_invalid"
+		}
+		next, err := domain.Next(h.status, ev)
+		if err != nil {
+			return "", err
 		}
 		_, err = tx.Exec(ctx, `
 			UPDATE task_attempts SET status = $2, outcome = 'succeeded', error_class = $3, finished_at = now()
@@ -405,13 +416,14 @@ func (s *Store) Complete(ctx context.Context, attemptID string, req CompleteRequ
 				WHERE id = $1`, h.taskID, string(next))
 		}
 		if err == nil {
-			mats := req.Materializations
-			if mats == nil {
-				mats = []json.RawMessage{}
-			}
 			err = taskEvent(ctx, tx, h.runID, h.taskID, "task.completed", map[string]any{
 				"attempt_id": attemptID, "status": attemptStatus, "failed_blocking_checks": failed,
-				"materializations": mats, "checks": req.Checks})
+				"materializations": len(req.Materializations), "invalid": invalid})
+		}
+		if err == nil && invalid == "" {
+			// Fenced materialization: we hold the task row and the fencing check
+			// passed, so only this attempt's outputs can be recorded here.
+			err = recordOutputs(ctx, tx, h, attemptID, req.Materializations, req.Checks, len(failed) > 0)
 		}
 		if err == nil {
 			// Same transaction (ADR-003 decision 6): dependents become READY, or
@@ -420,6 +432,10 @@ func (s *Store) Complete(ctx context.Context, attemptID string, req CompleteRequ
 		}
 		return next, err
 	})
+	if err == nil && invalid != "" {
+		res.AttemptStatus = "CHECK_FAILED"
+	}
+	return res, err
 }
 
 func (s *Store) Fail(ctx context.Context, attemptID string, req FailRequest) (AttemptResult, error) {

@@ -83,6 +83,8 @@ type PipelineDef struct {
 	Tasks         []domain.TaskSpec `json:"tasks"`
 	// Deadline rule (A7): deadline_at = partition start/end + offset, late policy, fallback.
 	Deadline *domain.DeadlineRule `json:"deadline,omitempty"`
+	// Freshness policies per produced asset key (A8).
+	Freshness map[string]FreshnessPolicy `json:"freshness,omitempty"`
 }
 
 type Pipeline struct {
@@ -126,6 +128,18 @@ func validateDef(def PipelineDef) error {
 	if def.Deadline != nil {
 		if err := def.Deadline.Validate(); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+	}
+	for key, f := range def.Freshness {
+		declared := false
+		for _, t := range def.Tasks {
+			declared = declared || slices.Contains(t.AssetOutputs, key)
+		}
+		if !declared {
+			return fmt.Errorf("%w: freshness policy for %q, which no task produces", ErrInvalid, key)
+		}
+		if err := f.validate(); err != nil {
+			return fmt.Errorf("%w: freshness %q: %v", ErrInvalid, key, err)
 		}
 	}
 	return nil
@@ -183,6 +197,9 @@ func (s *Store) RegisterPipeline(ctx context.Context, def PipelineDef) (Pipeline
 		RETURNING version, created_at`,
 		def.Name, body, hash, def.PartitionKind, def.PartitionTZ).Scan(&p.Version, &p.CreatedAt)
 	if err != nil {
+		return Pipeline{}, false, err
+	}
+	if err := registerAssets(ctx, tx, def); err != nil {
 		return Pipeline{}, false, err
 	}
 	return p, true, tx.Commit(ctx)

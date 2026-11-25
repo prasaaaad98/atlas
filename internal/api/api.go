@@ -38,6 +38,11 @@
 //	GET  /backfills/{id}             progress (run counts by status)
 //	POST /backfills/{id}/cancel      stop creating runs, cancel its active runs
 //
+// A8 endpoints:
+//
+//	GET  /assets                     assets with partition counts by status
+//	GET  /assets/{key}/partitions    current pointer and status per partition (?limit=, newest first)
+//
 // A repeated report with the same fencing token (lost response) returns 200
 // with "replay": true; a report from an attempt that no longer holds the task
 // returns 409 stale_attempt.
@@ -49,6 +54,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/prasaaaad98/atlas/internal/domain"
@@ -75,6 +81,8 @@ type Store interface {
 	CreateBackfill(ctx context.Context, req store.BackfillRequest) (store.Backfill, error)
 	GetBackfill(ctx context.Context, id string) (store.Backfill, error)
 	CancelBackfill(ctx context.Context, id string) (store.Backfill, error)
+	ListAssets(ctx context.Context) ([]store.Asset, error)
+	AssetPartitions(ctx context.Context, key string, limit int) ([]store.AssetPartition, error)
 }
 
 func Handler(s Store, log *slog.Logger) http.Handler {
@@ -219,6 +227,21 @@ func Handler(s Store, log *slog.Logger) http.Handler {
 	})
 	mux.HandleFunc("POST /backfills/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
 		out, err := s.CancelBackfill(r.Context(), r.PathValue("id"))
+		respond(w, log, http.StatusOK, out, err)
+	})
+	mux.HandleFunc("GET /assets", func(w http.ResponseWriter, r *http.Request) {
+		out, err := s.ListAssets(r.Context())
+		if out == nil {
+			out = []store.Asset{}
+		}
+		respond(w, log, http.StatusOK, out, err)
+	})
+	mux.HandleFunc("GET /assets/{key}/partitions", func(w http.ResponseWriter, r *http.Request) {
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		out, err := s.AssetPartitions(r.Context(), r.PathValue("key"), limit)
+		if out == nil {
+			out = []store.AssetPartition{}
+		}
 		respond(w, log, http.StatusOK, out, err)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

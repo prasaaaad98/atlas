@@ -13,6 +13,7 @@
 //	ATLAS_REAPER_INTERVAL  how often expired leases are reaped (default 5s, ADR-004)
 //	ATLAS_SCHEDULER_INTERVAL  how often schedules tick and backfills advance (default 30s, ADR-011)
 //	ATLAS_DEADLINE_INTERVAL   how often deadlines are evaluated (default 30s, ADR-012)
+//	ATLAS_FRESHNESS_INTERVAL  how often asset freshness is evaluated (default 60s, ADR-013)
 //
 // On start it prints "atlas listening on <addr>" once the socket is bound, so
 // scripts and tests know when it accepts requests.
@@ -84,6 +85,11 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("ATLAS_DEADLINE_INTERVAL: %q is not a positive duration", os.Getenv("ATLAS_DEADLINE_INTERVAL"))
 	}
 	go deadlines(ctx, st, dlEvery, log)
+	frEvery, err := time.ParseDuration(env("ATLAS_FRESHNESS_INTERVAL", "60s"))
+	if err != nil || frEvery <= 0 {
+		return fmt.Errorf("ATLAS_FRESHNESS_INTERVAL: %q is not a positive duration", os.Getenv("ATLAS_FRESHNESS_INTERVAL"))
+	}
+	go freshness(ctx, st, frEvery, log)
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -164,6 +170,31 @@ func deadlines(ctx context.Context, st *store.Store, every time.Duration, log *s
 			} else if rep != (store.DeadlineReport{}) {
 				log.Info("deadlines evaluated", "at_risk", rep.AtRisk, "missed", rep.Missed,
 					"canceled", rep.Canceled, "fallbacks", rep.Fallbacks)
+			}
+		}
+	}
+}
+
+// freshness marks assets late when their expected partition isn't fresh by
+// the policy deadline, judged on the database clock.
+func freshness(ctx context.Context, st *store.Store, every time.Duration, log *slog.Logger) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			now, err := st.DBNow(ctx)
+			if err == nil {
+				var n int
+				n, err = st.EvaluateFreshness(ctx, now)
+				if n > 0 {
+					log.Info("assets late", "partitions", n)
+				}
+			}
+			if err != nil && ctx.Err() == nil {
+				log.Error("freshness pass failed", "err", err)
 			}
 		}
 	}
