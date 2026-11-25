@@ -6,6 +6,10 @@
 COMPOSE      := docker compose -f deploy/compose/docker-compose.yml
 DATABASE_URL ?= postgres://atlas:atlas@localhost:5432/atlas?sslmode=disable
 
+# Git Bash on Windows rewrites arguments like /migrations into Windows paths before
+# Docker sees them; this turns that off (no effect on Linux/CI).
+export MSYS_NO_PATHCONV := 1
+
 # golang-migrate runs from its Docker image, so it adds no Go dependency.
 # host.docker.internal lets the container reach the Postgres port published on your machine.
 MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate:v4.18.3 \
@@ -54,6 +58,12 @@ vet:
 
 fmt:
 	gofmt -l -w .
+
+run:           ## run the control plane against the compose database (make up && make migrate first)
+	go run ./cmd/atlas
+
+demo-a1:       ## kill atlas right after a 201, restart, show the run survived (needs make up)
+	ATLAS_REQUIRE_DB=1 go test -count=1 -v -run TestKillAfterAck ./tests/integration
 
 demo-a0:       ## state machine trace: lease lapses, retry succeeds, stale completion rejected
 	go test ./internal/domain -run Example -v
