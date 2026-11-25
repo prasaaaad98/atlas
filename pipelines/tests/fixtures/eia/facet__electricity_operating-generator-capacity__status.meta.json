@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity/facet/status",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:30:18+00:00",
+  "sha256": "c1aa164f11f20066e12c9679f040f8082ae250f08db8daeceaf6fa81ff7ba1cd",
+  "bytes": 493,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

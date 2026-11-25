@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity/data?frequency=monthly&start=2026-06&length=500&facets%5Benergy_source_code%5D%5B%5D=MWH&sort%5B0%5D%5Bcolumn%5D=period&sort%5B0%5D%5Bdirection%5D=desc&data%5B%5D=nameplate-capacity-mw&data%5B%5D=net-summer-capacity-mw&data%5B%5D=net-winter-capacity-mw&data%5B%5D=operating-year-month&data%5B%5D=planned-retirement-year-month&data%5B%5D=planned-derate-year-month&data%5B%5D=planned-derate-summer-cap-mw&data%5B%5D=planned-uprate-year-month&data%5B%5D=planned-uprate-summer-cap-mw&data%5B%5D=county&data%5B%5D=longitude&data%5B%5D=latitude",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:31:00+00:00",
+  "sha256": "ab6f00e0cf636a3eff043738b92a0f65337b2d773c5c06bdcb72426c74486e42",
+  "bytes": 548769,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

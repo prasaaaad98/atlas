@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/natural-gas/pri/fut/facet/series",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:27:22+00:00",
+  "sha256": "7b2df133184b6e9893fd79e9ce7cbaba4478dca9a4bfdfd70bdb08e3c3221cf5",
+  "bytes": 581,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

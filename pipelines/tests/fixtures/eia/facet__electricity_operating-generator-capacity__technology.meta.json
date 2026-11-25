@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity/facet/technology",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:29:01+00:00",
+  "sha256": "3413463e656ca162ec528f24bb07bdfc70117f17c5040d412ae94e268f00da69",
+  "bytes": 1076,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

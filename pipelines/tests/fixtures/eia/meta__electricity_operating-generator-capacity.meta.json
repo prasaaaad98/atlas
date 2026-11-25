@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:28:59+00:00",
+  "sha256": "f7f8093d8304605017f59c94ac05c2b23c24ddf2c2186455c963ab5bd89fd041",
+  "bytes": 1940,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

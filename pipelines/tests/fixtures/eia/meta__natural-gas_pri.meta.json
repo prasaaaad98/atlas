@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/natural-gas/pri",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:25:22+00:00",
+  "sha256": "451c3de5c202a43460a3d1c724a1f5cfd3959633bdcce9b82750c176412ec5db",
+  "bytes": 2319,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

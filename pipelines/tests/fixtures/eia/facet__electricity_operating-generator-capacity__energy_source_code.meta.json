@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity/facet/energy_source_code",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:29:31+00:00",
+  "sha256": "4636403a73a416bbf89d580edf78b803d467f942584faf57d970c34f133640ba",
+  "bytes": 2827,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

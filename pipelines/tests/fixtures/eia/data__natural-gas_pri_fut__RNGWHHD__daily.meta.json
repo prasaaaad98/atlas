@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/natural-gas/pri/fut/data?frequency=daily&start=2026-10-01&end=2026-11-25&length=5000&facets%5Bseries%5D%5B%5D=RNGWHHD&data%5B%5D=value",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:28:58+00:00",
+  "sha256": "2cfb3a9dca077ec4de3802499b456750ba0a7151f4a70996c688521434c93b8b",
+  "bytes": 11305,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

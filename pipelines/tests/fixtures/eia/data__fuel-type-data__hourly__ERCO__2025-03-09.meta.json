@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2025-03-09T00&end=2025-03-10T12&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T22:58:54+00:00",
+  "sha256": "ce6b0dad196c481d9154abf08c3301021697843988cf7c93149ec506b79ca5c8",
+  "bytes": 65714,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

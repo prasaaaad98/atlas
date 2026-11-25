@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/daily-fuel-type-data",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:22:11+00:00",
+  "sha256": "2426b18195795c02ba288e8bf544a08e5e6292c7c4d168db75c5643882067b11",
+  "bytes": 873,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

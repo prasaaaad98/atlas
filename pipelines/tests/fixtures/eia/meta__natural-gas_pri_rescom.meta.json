@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/natural-gas/pri/rescom",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:27:51+00:00",
+  "sha256": "d926e139008d830a37e450ba41f4102863d088a0b94ff28124107efbf6602b42",
+  "bytes": 702,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

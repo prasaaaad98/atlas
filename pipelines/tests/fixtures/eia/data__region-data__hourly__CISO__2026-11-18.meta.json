@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=hourly&start=2026-11-18T00&end=2026-11-19T12&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T22:44:00+00:00",
+  "sha256": "16062b0f52292acbbf8338619bed442da066191d81166a60eb57d5fd96d048c2",
+  "bytes": 29289,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

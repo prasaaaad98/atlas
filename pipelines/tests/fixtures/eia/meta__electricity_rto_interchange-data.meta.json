@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/interchange-data",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:10:21+00:00",
+  "sha256": "ee83b22f6847280942b507bdd8664f1a7c10bff0ea901f1d8ed3ca3e8b860f80",
+  "bytes": 1061,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity/facet/prime_mover_code",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:29:53+00:00",
+  "sha256": "c7c7f900d9dbf554f76a565016fa363e291a91f67a6f7fa747ed2f0b7f833b31",
+  "bytes": 419,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

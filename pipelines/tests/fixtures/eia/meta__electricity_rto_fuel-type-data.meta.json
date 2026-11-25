@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T22:55:32+00:00",
+  "sha256": "2483705cf3e2a4826acace7e8a47bb90d799c3c8a6c4525bdd6dbd5a0c061a90",
+  "bytes": 1024,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/region-data",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T22:43:09+00:00",
+  "sha256": "242132471c147b37e858f658671bddba74459b419d89a7f7c38dd70de83489d4",
+  "bytes": 1107,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

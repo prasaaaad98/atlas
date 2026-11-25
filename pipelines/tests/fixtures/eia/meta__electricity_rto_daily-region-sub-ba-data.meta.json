@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/daily-region-sub-ba-data",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:21:49+00:00",
+  "sha256": "39a785ec70549255ae15cbfe1a3b41973b3d043c3e818c79354de20b5924541c",
+  "bytes": 828,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}
