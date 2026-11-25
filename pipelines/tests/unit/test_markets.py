@@ -215,3 +215,20 @@ def test_real_iex_limits_have_provenance():
 def test_entsoe_registry_intervals(day, expected):
     m = load_registry(REPO / "config" / "markets")["entsoe"]
     assert len(m.intervals("DAM", parse_partition_date(day))) == expected
+
+
+def test_us_ba_registry_loads_with_a_local_zone_per_ba():
+    # E0: EIA-930 balancing authorities. Partitions are UTC days; each BA's local
+    # zone (for derived columns) lives in the adapter section and must be valid.
+    from zoneinfo import ZoneInfo
+    from atlas_pipelines.core.limits import load_limit
+    m = load_registry(REPO / "config" / "markets")["us_ba"]
+    assert m.timezone == "UTC" and set(m.products) == {"DEMAND", "GENERATION", "INTERCHANGE"}
+    assert len(m.intervals("DEMAND", parse_partition_date("2025-11-02"))) == 24  # UTC day: 24 h even on a US DST day
+    bas = m.raw["eia"]["bas"]
+    assert set(bas) == set(m.zones) == {"CISO", "ERCO", "PJM", "MISO", "NYIS", "ISNE", "SWPP"}
+    for code, ba in bas.items():
+        ZoneInfo(ba["tz"])
+        assert ba["tz_status"] in ("assumed", "sourced", "verified") and ba["price_source"] == "none", code
+    lim = load_limit("eia", REPO / "config" / "limits")
+    assert (lim.rpm, lim.max_concurrency) == (60, 1)

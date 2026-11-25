@@ -1,0 +1,58 @@
+# Market registry entry: US balancing authorities, fundamentals from EIA (Form EIA-930).
+# Loaded by pipelines/atlas_pipelines/core/markets.py. Source terms: docs/data/sources/eia.md.
+# EIA track plan: PLAN_EIA_TRACK.md (slices E0–E7).
+#
+# NO PRICES here: EIA-930 has demand, day-ahead demand forecast, net generation,
+# generation by fuel and interchange. US prices wait for an ISO source (price_source).
+#
+# Partitions are UTC days (timezone: UTC). The plan's completeness rule is 24 hours
+# per UTC day per BA, and the seven BAs span three local time zones. Each BA's local
+# zone (below, `eia.bas.<code>.tz`) is used only for derived local date/hour columns,
+# and both of its DST days are tested in E2/E3.
+registry_version: 1
+id: us_ba
+name: US balancing authorities (EIA-930 fundamentals)
+timezone: UTC
+currency: USD          # no prices from this market today; required by the registry format
+zones: [CISO, ERCO, PJM, MISO, NYIS, ISNE, SWPP]   # EIA respondent codes (PLAN_EIA_TRACK.md §3)
+products:
+  DEMAND:              # actual demand and day-ahead demand forecast (silver.demand, kind = actual|forecast)
+    canonical_market: EIA930_DEMAND
+    intervals:
+      - {effective_from: 2022-04-01, minutes: 60}   # start of the history we backfill (plan §6 E6), hourly
+    price_floor: null
+    price_cap: null
+  GENERATION:          # net generation by fuel (silver.generation)
+    canonical_market: EIA930_GENERATION
+    intervals:
+      - {effective_from: 2022-04-01, minutes: 60}
+    price_floor: null
+    price_cap: null
+  INTERCHANGE:         # net interchange (silver.interchange)
+    canonical_market: EIA930_INTERCHANGE
+    intervals:
+      - {effective_from: 2022-04-01, minutes: 60}
+    price_floor: null
+    price_cap: null
+
+# ---------------------------------------------------------------------------
+# Adapter section: read and validated only by sources/eia/ (E1).
+eia:
+  # Per BA. `tz` drives derived local columns only. Status `assumed` until E1
+  # confirms it from saved responses (the API's local-hourly frequency carries the
+  # offset each BA reports). MISO in particular: confirm whether EIA-930 reports
+  # it in Central prevailing time.
+  # price_source: none | caiso_oasis | pjm_dataminer | ercot_api (PLAN_EIA_TRACK.md §8).
+  # backfill_start: our coverage choice (plan E6), not EIA's data start.
+  bas:
+    CISO: {name: California ISO, operator: CAISO, tz: America/Los_Angeles, tz_status: assumed, price_source: none, price_source_status: "pending: CAISO OASIS reachability and terms (investigate only)", backfill_start: 2022-04-01}
+    ERCO: {name: Electric Reliability Council of Texas, operator: ERCOT, tz: America/Chicago, tz_status: assumed, price_source: none, price_source_status: "on hold: ERCOT API restricted outside the US", backfill_start: 2022-04-01}
+    PJM:  {name: PJM Interconnection, operator: PJM, tz: America/New_York, tz_status: assumed, price_source: none, price_source_status: "on hold: Data Miner needs an approved key; internal use only", backfill_start: 2022-04-01}
+    MISO: {name: Midcontinent ISO, operator: MISO, tz: America/Chicago, tz_status: assumed, price_source: none, backfill_start: 2022-04-01}
+    NYIS: {name: New York ISO, operator: NYISO, tz: America/New_York, tz_status: assumed, price_source: none, backfill_start: 2022-04-01}
+    ISNE: {name: ISO New England, operator: ISO-NE, tz: America/New_York, tz_status: assumed, price_source: none, backfill_start: 2022-04-01}
+    SWPP: {name: Southwest Power Pool, operator: SPP, tz: America/Chicago, tz_status: assumed, price_source: none, backfill_start: 2022-04-01}
+  # Demand forecast point-in-time (plan §4, ADR-B06 addendum in E2): EIA-930 does
+  # not publish when a BA issued its day-ahead forecast. Placeholder, to be set
+  # with a cited basis in E2; until then backtests use fetched_at_utc only.
+  forecast_availability: {rule: null, status: assumed}

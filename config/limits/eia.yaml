@@ -1,0 +1,9 @@
+# Politeness limit for the EIA API v2 (docs/data/sources/eia.md).
+# EIA's guidance (Open Data FAQs): "if you keep your sustained rate less than ~9,000 per
+# hour and your burst rate beneath 5 per second, your key won't be throttled or temporarily
+# disabled"; some routes may be slower. We stay far below it (PLAN_EIA_TRACK.md §2):
+# 60/min, one request at a time (so at most ~1/s, under the plan's 2/s burst cap).
+# Raise only after measuring.
+key: eia
+rpm: 60
+max_concurrency: 1
