@@ -15,6 +15,11 @@ Invariants protected:
     days get 23 or 25 hours worth of intervals and IST days always the same count.
   - Price floor/cap are optional here; a check that needs one must fail loudly
     when it is unset rather than assume a number (values are owner-confirmed).
+  - A non-null price limit must carry provenance (`<limit>_meta`): status
+    `sourced` (with a cited source) or `assumed` (to be confirmed). Checks
+    may treat an `assumed` limit as warn-only; nobody can add a bare number.
+  - A product may have no interval rules yet (length not confirmed from a
+    source); any interval question about it is then an error, never a default.
 """
 
 from __future__ import annotations
@@ -51,6 +56,8 @@ class Product:
     intervals: tuple[IntervalRule, ...]  # sorted by effective_from
     price_floor: float | None
     price_cap: float | None
+    price_floor_status: str | None  # "sourced" | "assumed" | None when unset
+    price_cap_status: str | None
     gate_closure_local: str | None  # "HH:MM" local, set from source docs
     publication_local: str | None  # "HH:MM" local, set from measurements
 
@@ -60,9 +67,9 @@ class Product:
             if r.effective_from <= local_date:
                 rule = r
         if rule is None:
+            starts = self.intervals[0].effective_from if self.intervals else "nowhere: no rules recorded"
             raise RegistryError(
-                f"{self.canonical_market}: no interval rule covers {local_date} "
-                f"(registry starts {self.intervals[0].effective_from})"
+                f"{self.canonical_market}: no interval rule covers {local_date} (registry starts {starts})"
             )
         return rule.minutes
 
@@ -173,8 +180,10 @@ def load_market(path: Path) -> Market:
 def _load_product(code: str, raw: dict, where: str) -> Product:
     if not _PRODUCT.match(code):
         raise RegistryError(f"{where}: product code must be UPPER_SNAKE")
+    if "intervals" not in raw or raw["intervals"] is None:
+        raise RegistryError(f"{where}: missing required field 'intervals' (use [] if not yet confirmed)")
     rules = []
-    for r in _require(raw, "intervals", where):
+    for r in raw["intervals"]:
         eff = r.get("effective_from")
         minutes = r.get("minutes")
         if not isinstance(eff, date):
@@ -182,23 +191,40 @@ def _load_product(code: str, raw: dict, where: str) -> Product:
         if not isinstance(minutes, int) or minutes <= 0 or 1440 % minutes:
             raise RegistryError(f"{where}: minutes must be a positive divisor of 1440")
         rules.append(IntervalRule(eff, minutes))
-    if not rules:
-        raise RegistryError(f"{where}: at least one interval rule is required")
     if any(a.effective_from >= b.effective_from for a, b in zip(rules, rules[1:])):
         raise RegistryError(f"{where}: interval rules must have strictly increasing effective_from")
 
     floor, cap = raw.get("price_floor"), raw.get("price_cap")
     if floor is not None and cap is not None and floor > cap:
         raise RegistryError(f"{where}: price_floor > price_cap")
+    floor_status = _limit_status(raw, "price_floor", where)
+    cap_status = _limit_status(raw, "price_cap", where)
     return Product(
         code=code,
         canonical_market=str(_require(raw, "canonical_market", where)),
         intervals=tuple(rules),
         price_floor=floor,
         price_cap=cap,
+        price_floor_status=floor_status,
+        price_cap_status=cap_status,
         gate_closure_local=raw.get("gate_closure_local"),
         publication_local=raw.get("publication_local"),
     )
+
+
+LIMIT_STATUSES = ("sourced", "assumed")
+
+
+def _limit_status(raw: dict, name: str, where: str) -> str | None:
+    """A price limit is a market number: it must say where it came from."""
+    if raw.get(name) is None:
+        return None
+    meta = raw.get(f"{name}_meta")
+    if not isinstance(meta, dict) or meta.get("status") not in LIMIT_STATUSES:
+        raise RegistryError(f"{where}: {name} needs {name}_meta with status in {LIMIT_STATUSES}")
+    if meta["status"] == "sourced" and not meta.get("source"):
+        raise RegistryError(f"{where}: {name}_meta status 'sourced' needs a 'source'")
+    return meta["status"]
 
 
 def _require(raw: dict, key: str, where: str):

@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         for m in registry.values():
             for code, p in m.products.items():
                 rules = ", ".join(f"{r.minutes} min from {r.effective_from}" for r in p.intervals)
-                print(f"{m.id:<12} {code:<5} {p.canonical_market:<14} {m.timezone:<18} {m.currency}  {rules}")
+                print(f"{m.id:<12} {code:<5} {p.canonical_market:<14} {m.timezone:<18} {m.currency}  {rules or 'intervals not confirmed'}")
         return 0
 
     pipelines = build_pipelines(registry)

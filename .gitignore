@@ -32,3 +32,8 @@ Thumbs.db
 # Plans, agent guidance, ADRs and notes stay local; only the root README is published
 *.md
 !/README.md
+
+# Local-only data (e.g. Mendeley datasets with India prices): testing, validation
+# and evaluation on this PC only. Never committed, published or used in CI.
+/local_only/
+/pipelines/tests/fixtures_local/

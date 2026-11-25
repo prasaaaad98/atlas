@@ -25,7 +25,7 @@ def test_two_dummy_markets_load_with_different_tz_and_intervals(registry):
 def test_real_registry_loads():
     reg = load_registry(REPO / "config" / "markets")
     assert reg["iex"].timezone == "Asia/Kolkata"
-    assert set(reg["iex"].products) == {"DAM", "RTM"}
+    assert set(reg["iex"].products) == {"DAM", "RTM", "HPDAM"}
 
 
 @pytest.mark.parametrize("day", ["2026-03-29", "2026-10-25", "2026-11-24", "2024-02-29"])
@@ -138,3 +138,64 @@ def test_duplicate_canonical_market_rejected(tmp_path):
         (tmp_path / f"{name}.yaml").write_text(text.replace("DUMMY_CET_DAM", "DUMMY_IST_DAM"))
     with pytest.raises(RegistryError, match="canonical_market"):
         load_registry(tmp_path)
+
+
+# --- price-limit provenance (never an unsourced number) ----------------------
+
+LIMITS = """registry_version: 1
+id: t
+name: Test
+timezone: UTC
+currency: EUR
+products:
+  DAM:
+    canonical_market: T_DAM
+{body}
+"""
+
+
+def _limits(tmp_path, body):
+    p = tmp_path / "t.yaml"
+    p.write_text(LIMITS.format(body=body))
+    return p
+
+
+def test_price_limit_without_provenance_rejected(tmp_path):
+    body = "    intervals: [{effective_from: 2024-01-01, minutes: 60}]\n    price_cap: 100"
+    with pytest.raises(RegistryError, match="price_cap_meta"):
+        load_market(_limits(tmp_path, body))
+
+
+def test_sourced_limit_needs_a_source(tmp_path):
+    body = (
+        "    intervals: [{effective_from: 2024-01-01, minutes: 60}]\n"
+        "    price_cap: 100\n    price_cap_meta: {status: sourced}"
+    )
+    with pytest.raises(RegistryError, match="source"):
+        load_market(_limits(tmp_path, body))
+
+
+def test_limit_status_is_recorded(tmp_path):
+    body = (
+        "    intervals: [{effective_from: 2024-01-01, minutes: 60}]\n"
+        "    price_cap: 100\n    price_cap_meta: {status: sourced, source: doc}\n"
+        "    price_floor: 0\n    price_floor_meta: {status: assumed}"
+    )
+    p = load_market(_limits(tmp_path, body)).product("DAM")
+    assert (p.price_cap, p.price_cap_status) == (100, "sourced")
+    assert (p.price_floor, p.price_floor_status) == (0, "assumed")
+
+
+def test_product_without_interval_rules_loads_but_cannot_answer(tmp_path):
+    # e.g. a product whose block length is not yet confirmed from a source
+    m = load_market(_limits(tmp_path, "    intervals: []"))
+    with pytest.raises(RegistryError, match="no interval rule"):
+        m.intervals("DAM", date(2026, 1, 1))
+
+
+def test_real_iex_limits_have_provenance():
+    reg = load_registry(REPO / "config" / "markets")
+    iex = reg["iex"]
+    assert iex.product("DAM").price_cap_status == "sourced"
+    assert iex.product("DAM").price_floor_status == "assumed"
+    assert iex.product("HPDAM").price_cap == 20000

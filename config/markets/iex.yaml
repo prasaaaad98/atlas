@@ -2,10 +2,15 @@
 # Versioned config: changing a value is a reviewed commit, never a code edit.
 # Loaded by pipelines/atlas_pipelines/core/markets.py.
 #
-# Values here come from PHASE_AB_PLAN.md §3.1/§3.4 (time zone, 15-minute blocks,
-# history from 2022-04-01, bid areas). Values marked null are NOT yet confirmed
-# from an official source; checks that need them fail until the owner fills
-# them in with a citation in docs/data/sources/iex.md (Slice B1).
+# DATA ACCESS: BLOCKED. IEX's terms of use restrict content to personal,
+# non-commercial use and prohibit downloading/extracting without express
+# authorization (docs/data/sources/iex.md). Nothing here is IEX market data;
+# the entry only describes the market so other India sources can be checked
+# against the same rules.
+#
+# Every non-null price limit carries <limit>_meta with its provenance:
+#   status: sourced  -> taken from the cited document
+#   status: assumed  -> owner assumption, must be confirmed; checks may use it as warn-only
 registry_version: 1
 id: iex
 name: Indian Energy Exchange
@@ -16,17 +21,45 @@ products:
   DAM:
     canonical_market: IEX_DAM
     intervals:
-      # effective_from = start of the history we ingest, not the date IEX adopted 15-min blocks.
+      # effective_from = start of the history we plan to cover, not the date IEX adopted 15-min blocks.
       - {effective_from: 2022-04-01, minutes: 15}
-    price_floor: null         # TODO(owner, B1): confirm with citation
-    price_cap: null           # TODO(owner, B1): confirm current regulatory cap with citation
-    gate_closure_local: null  # TODO(B1): from IEX rules
-    publication_local: null   # TODO(B1): from measured publication times, never guessed
+    price_cap: 10000          # INR/MWh
+    price_cap_meta: &cap_meta
+      status: sourced
+      unit: INR/MWh
+      effective_from: null    # unknown
+      in_force_as_of: FY2025-26
+      source: "IEX Annual Report FY25-26 (NSE filing IEX_14082026...AR_FY25_26.pdf)"  # TODO(owner): full file name
+      note: "CERC petition 60/MP/2026 seeks revision; monitor."
+    price_floor: 0
+    price_floor_meta: &floor_assumed
+      status: assumed
+      unit: INR/MWh
+      source: null
+      note: "Assumed 0; confirm from regulation or exchange bye-laws."
+    gate_closure_local: null  # TODO: from exchange rules once a permitted source exists
+    publication_local: null   # TODO: from measured publication times, never guessed
   RTM:
     canonical_market: IEX_RTM
     intervals:
       - {effective_from: 2022-04-01, minutes: 15}
-    price_floor: null
-    price_cap: null
+    price_cap: 10000
+    price_cap_meta: *cap_meta
+    price_floor: 0
+    price_floor_meta: *floor_assumed
+    gate_closure_local: null
+    publication_local: null
+  HPDAM:                      # High-Price Day-Ahead Market
+    canonical_market: IEX_HPDAM
+    intervals: []             # TODO(owner): block length and start date not yet confirmed from a source
+    price_cap: 20000          # INR/MWh
+    price_cap_meta:
+      <<: *cap_meta
+    price_floor: 0
+    price_floor_meta:
+      status: sourced
+      unit: INR/MWh
+      in_force_as_of: FY2025-26
+      source: "IEX Annual Report FY25-26 (NSE filing IEX_14082026...AR_FY25_26.pdf)"  # TODO(owner): full file name
     gate_closure_local: null
     publication_local: null
