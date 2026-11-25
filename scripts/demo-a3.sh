@@ -48,7 +48,8 @@ done
 echo "attempt 1: $st"
 
 echo "== worker B claims attempt 2 and resumes from the checkpoint"
-$ATLAS worker --worker-id worker-B --lease-seconds 10 --exit-when-idle
+# --max-tasks 1, not --exit-when-idle: the re-run is claimable only after its backoff (A4).
+$ATLAS worker --worker-id worker-B --lease-seconds 10 --max-tasks 1
 
 $PSQL -c "SELECT a.attempt_number, a.worker_id, a.fencing_token, a.status, a.outcome, a.error_class
           FROM task_attempts a JOIN workflow_runs r ON r.id=a.run_id

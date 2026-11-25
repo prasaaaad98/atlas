@@ -198,3 +198,11 @@ def test_chunked_demo_task_resumes_from_checkpoint(lake, monkeypatch):
     _, [check] = chunked(ctx)
     assert check.metrics["resumed_from"] == 4 and check.metrics["chunks_this_attempt"] == [4, 5]
     assert beats == [{"next_chunk": 5}, {"next_chunk": 6}]
+
+
+def test_retry_policy_and_max_attempts_are_registered():
+    from atlas_pipelines.defs.engine_demo import engine_demo_pipelines
+    flaky = next(p for p in engine_demo_pipelines() if p.name == "engine_flaky")
+    [t] = pipeline_definition(flaky)["tasks"]
+    assert t["max_attempts"] == 4
+    assert t["retry"] == {"initial_interval_seconds": 2, "backoff_coefficient": 2, "max_interval_seconds": 10}

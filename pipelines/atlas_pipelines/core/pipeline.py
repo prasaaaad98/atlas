@@ -32,6 +32,10 @@ class TaskDef:
     # Used by Atlas only (the local runner runs each task once): how many
     # attempts in total, including re-runs after an expired lease.
     max_attempts: int = 1
+    # Retry policy for Atlas (A4, ADR-005): initial_interval_seconds,
+    # backoff_coefficient, max_interval_seconds, non_retryable_error_classes.
+    # None = Atlas's default policy.
+    retry: dict | None = None
 
 
 @dataclass(frozen=True)

@@ -158,7 +158,7 @@ def pipeline_definition(p: Pipeline) -> dict:
         "partition_tz": p.partition_tz,
         "tasks": [
             {"name": t.name, "deps": list(t.deps), "asset_outputs": list(t.asset_outputs),
-             "max_attempts": t.max_attempts}
+             "max_attempts": t.max_attempts, **({"retry": t.retry} if t.retry else {})}
             for t in p.tasks
         ],
     }
