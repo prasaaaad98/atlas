@@ -24,7 +24,11 @@ never printed, and replaced by REDACTED in every saved URL and body (EIA echoes
 request parameters in its responses). That redaction is the only change made to
 the raw bytes; the .meta.json records it.
 
-Usage: python scripts/eia_reachability.py      (about 70 requests, ~1 per second, ~2 minutes)
+Usage: python scripts/eia_reachability.py
+About 110 requests, at most ~1 per second. EIA's data queries can be slow
+(median ~34 s, many 502/504 and timeouts observed on 2026-11-26), so a run can
+take 30-60 minutes. Each request is retried up to 3 times on 5xx or timeout.
+Re-running keeps files that succeeded (HTTP 200) and redoes only the others.
 EIA data is public domain; attribution: "Source: U.S. Energy Information Administration".
 """
 
@@ -50,6 +54,9 @@ MIN_GAP_S = 1.1  # stays under the `eia` limit key (60/min, one at a time)
 
 # Sample BAs, one per time zone in config/markets/us_ba.yaml, and the US DST days.
 SAMPLE_BAS = ["CISO", "ERCO", "PJM"]
+# Local zones for the local-hourly frequency's offset (config/markets/us_ba.yaml, tz_status assumed).
+BA_TZ = {"CISO": "America/Los_Angeles", "ERCO": "America/Chicago", "PJM": "America/New_York"}
+RETRY_WAITS_S = [15, 45, 90]  # after a 5xx or timeout; EIA's gateway is often slow
 NORMAL_DAY = "2026-11-18"
 DST_DAYS = ["2025-03-09", "2025-11-02", "2026-03-08"]  # spring forward, fall back, spring forward
 
@@ -79,6 +86,18 @@ def scrub(data: bytes | str) -> tuple[bytes, int]:
 
 
 def get(route: str, params: list[tuple[str, str]] | None = None, *, key_in: str | None = None) -> tuple[int | None, bytes, str]:
+    """GET with retries on 5xx / timeout (EIA's gateway errors), never on 4xx or 429."""
+    for attempt in range(len(RETRY_WAITS_S) + 1):
+        status, body, shown = _get_once(route, params, key_in=key_in)
+        if status is not None and status < 500:
+            return status, body, shown
+        if attempt < len(RETRY_WAITS_S):
+            print(f"        {status or 'timeout'}; retry in {RETRY_WAITS_S[attempt]} s")
+            time.sleep(RETRY_WAITS_S[attempt])
+    return status, body, shown
+
+
+def _get_once(route: str, params: list[tuple[str, str]] | None = None, *, key_in: str | None = None) -> tuple[int | None, bytes, str]:
     """One GET, spaced by MIN_GAP_S. Returns (status or None, body, redacted URL)."""
     global _last
     params = list(params or [])
@@ -95,7 +114,7 @@ def get(route: str, params: list[tuple[str, str]] | None = None, *, key_in: str 
         time.sleep(wait)
     _last = time.monotonic()
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as r:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=120) as r:
             return r.status, r.read(), shown
     except urllib.error.HTTPError as e:
         return e.code, (e.read() if e.fp else b""), shown
@@ -109,8 +128,8 @@ def save(name: str, status, body: bytes, url: str) -> dict | None:
     path, meta_path = OUT / f"{name}.json", OUT / f"{name}.meta.json"
     clean, n = scrub(body)
     entry = {"file": path.name, "http_status": status, "url": url, "bytes": len(clean)}
-    if path.exists():
-        entry["skipped"] = "exists"
+    if path.exists() and meta_path.exists() and json.loads(meta_path.read_text(encoding="utf-8")).get("http_status") == 200:
+        entry["skipped"] = "exists (200)"
     else:
         path.write_bytes(clean)
         meta_path.write_text(json.dumps({
@@ -152,6 +171,18 @@ def facets(meta: dict | None) -> list[str]:
 
 def data_columns(meta: dict | None) -> list[str]:
     return list((((meta or {}).get("response") or {}).get("data") or {}).keys())
+
+
+def local_window(day: str, tz: str) -> tuple[str, str]:
+    # local-hourly needs the offset in start/end (EIA metadata format YYYY-MM-DD"T"HH24TZH).
+    from zoneinfo import ZoneInfo
+    d = datetime.fromisoformat(day)
+    z = ZoneInfo(tz)
+
+    def fmt(t):
+        off = int(t.replace(tzinfo=z).utcoffset().total_seconds() // 3600)
+        return t.strftime("%Y-%m-%dT%H") + f"{off:+03d}"
+    return fmt(d), fmt(d.replace(hour=23))
 
 
 def window(day: str) -> tuple[str, str]:
@@ -203,7 +234,7 @@ def main() -> None:
         for freq in [f for f in found[child]["frequencies"] if "hourly" in f]:
             cases = [("CISO", NORMAL_DAY)] + [(ba, d) for ba in SAMPLE_BAS for d in DST_DAYS]
             for ba, day in cases:
-                start, end = window(day)
+                start, end = local_window(day, BA_TZ[ba]) if freq == "local-hourly" else window(day)
                 params = [("frequency", freq), ("start", start), ("end", end), ("length", "5000"),
                           (f"facets[{ba_facet}][]", ba)] + [("data[]", c) for c in found[child]["data"]]
                 fetch(f"data__{child}__{freq}__{ba}__{day}", f"{route}/data", params)
