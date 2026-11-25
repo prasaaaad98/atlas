@@ -241,6 +241,15 @@ def main() -> None:
         found[child]["ba_facet"] = ba_facet
     summary["rto_routes"] = found
 
+    # A real overflow response (length above EIA's 5,000-row maximum), for E1's truncation check.
+    region = next((c for c in found if c == "region-data"), None)
+    if region and found[region].get("ba_facet"):
+        print("   overflow sample (length=6000)")
+        start, end = window(NORMAL_DAY)
+        fetch(f"overflow__region-data__hourly__CISO__{NORMAL_DAY}", "electricity/rto/region-data/data",
+              [("frequency", "hourly"), ("start", start), ("end", end), ("length", "6000"),
+               ("facets[respondent][]", "CISO"), ("data[]", "value")])
+
     # Pagination sample (E1): one day of fuel-type data in pages of 100 rows.
     fuel = next((c for c in found if "fuel" in c), None)
     if fuel and found[fuel].get("ba_facet"):

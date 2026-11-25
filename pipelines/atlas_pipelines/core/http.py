@@ -101,24 +101,31 @@ def _retry_after(headers) -> float | None:
 
 def http_get(
     base_url: str,
-    params: dict,
+    params: dict | list[tuple[str, str]],
     *,
     limiter: RateLimiter,
     secret_params: tuple[str, ...] = (),
+    headers: dict[str, str] | None = None,
+    secret_headers: tuple[str, ...] = (),
     timeout: float = 60.0,
     max_bytes: int = DEFAULT_MAX_BYTES,
     opener=urllib.request.urlopen,
 ) -> FetchResult:
-    url = build_url(base_url, params)
+    """params: a dict, or a list of pairs when a key repeats (EIA: facets[x][]=a&facets[x][]=b).
+    secret_params are sent in the URL but redacted from what is reported; secret_headers
+    (e.g. EIA's X-Api-Key) never appear in the URL, and their values are scrubbed from errors."""
+    pairs = list(params.items()) if isinstance(params, dict) else list(params)
+    url = build_url(base_url, pairs)
     shown = redact(url, secret_params)
-    secrets = [str(params[k]) for k in secret_params if params.get(k)]
+    secrets = [str(v) for k, v in pairs if k in secret_params and v]
+    secrets += [str((headers or {})[h]) for h in secret_headers if (headers or {}).get(h)]
 
     def scrub(text: str) -> str:
         for s in secrets:
             text = text.replace(s, "REDACTED")
         return text
 
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
     limiter.acquire()
     try:
         with opener(req, timeout=timeout) as resp:
