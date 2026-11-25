@@ -14,6 +14,9 @@ What it does per task, in topological order:
      match. A mismatch fails the task (error_class materialization_invalid).
   4. Any failed blocking check → FAILED_TERMINAL (error_class data_check_failed),
      materializations recorded but pointers NOT moved.
+  4a. RetryableTaskError (e.g. source not published yet) → FAILED_TERMINAL
+     locally with retryable=True and the task's error class; what it recorded
+     is kept, pointers NOT moved. Atlas would re-queue it (A4).
   5. Otherwise SUCCEEDED and every materialization becomes current.
 Finally the run manifest is written. Status names match internal/domain.
 
@@ -35,7 +38,7 @@ from atlas_pipelines.core.lake import absolute_path
 from atlas_pipelines.core.manifest import set_pointer, write_run_manifest
 from atlas_pipelines.core.markets import iso_utc
 from atlas_pipelines.core.pipeline import Pipeline
-from atlas_pipelines.core.task import TaskContext, blocking_failures
+from atlas_pipelines.core.task import RetryableTaskError, TaskContext, blocking_failures
 
 
 class MaterializationInvalid(Exception):
@@ -49,6 +52,8 @@ class TaskOutcome:
     status: str  # SUCCEEDED | FAILED_TERMINAL | CANCELED
     error_class: str | None = None
     error: str | None = None
+    retryable: bool = False
+    retry_after_s: float | None = None
     materializations: list[dict] = field(default_factory=list)
     checks: list[dict] = field(default_factory=list)
 
@@ -98,6 +103,19 @@ def run_pipeline(pipeline: Pipeline, partition_key: str, lake_root: str) -> RunR
         try:
             mats, checks = tdef.fn(ctx)
             _verify(tdef.asset_outputs, partition_key, lake_root, mats)
+        except RetryableTaskError as e:
+            try:
+                _verify(tdef.asset_outputs, partition_key, lake_root, e.materializations)
+            except MaterializationInvalid as bad:
+                outcomes[name] = TaskOutcome(name, attempt_id, "FAILED_TERMINAL", "materialization_invalid", str(bad))
+                continue
+            outcomes[name] = TaskOutcome(
+                name, attempt_id, "FAILED_TERMINAL", e.error_class, str(e), True, e.retry_after_s,
+                [{**asdict(m), "materialization_id": f"{attempt_id}:{m.asset_key}", "created_at": _now()}
+                 for m in e.materializations],
+                [asdict(c) for c in e.checks],
+            )
+            continue  # nothing published; Atlas would retry
         except MaterializationInvalid as e:
             outcomes[name] = TaskOutcome(name, attempt_id, "FAILED_TERMINAL", "materialization_invalid", str(e))
             continue
@@ -120,6 +138,8 @@ def run_pipeline(pipeline: Pipeline, partition_key: str, lake_root: str) -> RunR
                 "FAILED_TERMINAL",
                 "data_check_failed",
                 "blocking checks failed: " + ", ".join(c.check_name for c in failed),
+                False,
+                None,
                 mat_records,
                 check_records,
             )
@@ -130,7 +150,7 @@ def run_pipeline(pipeline: Pipeline, partition_key: str, lake_root: str) -> RunR
                 lake_root,
                 {**rec, "run_id": run_id, "task": name, "attempt_id": attempt_id, "checks": check_records},
             )
-        outcomes[name] = TaskOutcome(name, attempt_id, "SUCCEEDED", None, None, mat_records, check_records)
+        outcomes[name] = TaskOutcome(name, attempt_id, "SUCCEEDED", None, None, False, None, mat_records, check_records)
 
     statuses = [o.status for o in outcomes.values()]
     if "FAILED_TERMINAL" in statuses:

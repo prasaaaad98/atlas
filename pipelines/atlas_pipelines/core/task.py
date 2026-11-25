@@ -65,6 +65,26 @@ class CheckResult:
 TaskFn = Callable[[TaskContext], tuple[list[Materialization], list[CheckResult]]]
 
 
+class RetryableTaskError(Exception):
+    """The task can't finish yet but may succeed later (e.g. a source hasn't
+    published). Carries what was recorded (raw bronze, failed checks) so the
+    attempt history keeps it; pointers never move.
+
+    The local runner records it (error_class, retry_after_s) and stops; Atlas
+    re-queues the task with backoff (A4). Raising it is the task's statement
+    "re-run me", never a way to hide a data problem: bad data is a blocking
+    check failure instead.
+    """
+
+    def __init__(self, error_class: str, message: str, *, retry_after_s: float | None = None,
+                 materializations: list | None = None, checks: list | None = None):
+        super().__init__(message)
+        self.error_class = error_class
+        self.retry_after_s = retry_after_s
+        self.materializations = list(materializations or [])
+        self.checks = list(checks or [])
+
+
 def blocking_failures(checks: list[CheckResult]) -> list[CheckResult]:
     """Checks that must stop the current pointer from moving (ADR-003 decision 5)."""
     return [c for c in checks if c.severity == "blocking" and not c.passed]

@@ -5,7 +5,7 @@ in Europe prices can be negative, so "price >= 0" is wrong as a shared rule.
 The limits come only from the registry, with provenance (core/markets.py).
 
 Severity follows the provenance of the limit:
-  - both limits `sourced`         -> blocking
+  - both limits `sourced`/`verified` -> blocking
   - any limit `assumed` or unset  -> warn (recorded, never silently passed)
 A non-finite price (NaN, inf) is always blocking. A currency that doesn't match
 the registry is always blocking.
@@ -28,7 +28,7 @@ def price_checks(df: pl.DataFrame, market: Market, product: str) -> list[CheckRe
     lo, hi = p.price_floor, p.price_cap
     below = int((prices < lo).sum()) if lo is not None else 0
     above = int((prices > hi).sum()) if hi is not None else 0
-    sourced = p.price_floor_status == "sourced" and p.price_cap_status == "sourced"
+    sourced = {p.price_floor_status, p.price_cap_status} <= {"sourced", "verified"}
     unset = [name for name, v in (("price_floor", lo), ("price_cap", hi)) if v is None]
 
     currencies = sorted(set(df["currency"].unique().to_list()))

@@ -16,8 +16,11 @@ Invariants protected:
   - Price floor/cap are optional here; a check that needs one must fail loudly
     when it is unset rather than assume a number (values are owner-confirmed).
   - A non-null price limit must carry provenance (`<limit>_meta`): status
-    `sourced` (with a cited source) or `assumed` (to be confirmed). Checks
-    may treat an `assumed` limit as warn-only; nobody can add a bare number.
+    `verified` (we matched it against an independent official figure),
+    `sourced` (documented by others, with a cited source) or `assumed` (to be
+    confirmed). Checks treat an `assumed` limit as warn-only; nobody can add a
+    bare number. The same three statuses are used for any market constant
+    (e.g. which ENTSO-E series is the day-ahead price), see STATUSES.
   - A product may have no interval rules yet (length not confirmed from a
     source); any interval question about it is then an error, never a default.
 """
@@ -25,7 +28,7 @@ Invariants protected:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -90,6 +93,9 @@ class Market:
     zones: tuple[str, ...]
     products: dict[str, Product]
     source_file: str
+    # The whole parsed YAML. Only the market's own adapter reads its private
+    # section (e.g. `entsoe:`) and validates it; shared code never does.
+    raw: dict = field(default_factory=dict, repr=False, compare=False)
 
     @property
     def tz(self) -> ZoneInfo:
@@ -174,6 +180,7 @@ def load_market(path: Path) -> Market:
         zones=zones,
         products=products,
         source_file=where,
+        raw=raw,
     )
 
 
@@ -212,7 +219,11 @@ def _load_product(code: str, raw: dict, where: str) -> Product:
     )
 
 
-LIMIT_STATUSES = ("sourced", "assumed")
+# Provenance of a market constant. `verified`: we matched it ourselves against an
+# independent official figure; `sourced`: documented by others (cited);
+# `assumed`: our reading, to be confirmed. Anything not `verified` is flagged.
+STATUSES = ("verified", "sourced", "assumed")
+LIMIT_STATUSES = STATUSES
 
 
 def _limit_status(raw: dict, name: str, where: str) -> str | None:
@@ -222,8 +233,8 @@ def _limit_status(raw: dict, name: str, where: str) -> str | None:
     meta = raw.get(f"{name}_meta")
     if not isinstance(meta, dict) or meta.get("status") not in LIMIT_STATUSES:
         raise RegistryError(f"{where}: {name} needs {name}_meta with status in {LIMIT_STATUSES}")
-    if meta["status"] == "sourced" and not meta.get("source"):
-        raise RegistryError(f"{where}: {name}_meta status 'sourced' needs a 'source'")
+    if meta["status"] in ("sourced", "verified") and not meta.get("source"):
+        raise RegistryError(f"{where}: {name}_meta status {meta['status']!r} needs a 'source'")
     return meta["status"]
 
 
