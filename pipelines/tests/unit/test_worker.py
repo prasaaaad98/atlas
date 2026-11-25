@@ -216,8 +216,8 @@ def test_source_tasks_declare_their_limit_keys(registry):
     tasks = pipeline_definition(prices)["tasks"]
     for t in tasks:
         if t["name"].startswith("ingest_"):
-            assert t["limit_key"] == "entsoe" and t["max_attempts"] == 8
-            assert t["retry"]["initial_interval_seconds"] == 60
+            assert t["limit_key"] == "entsoe" and t["max_attempts"] == 36
+            assert t["retry"] == {"initial_interval_seconds": 300, "backoff_coefficient": 1, "max_interval_seconds": 300}
         else:  # gold: local computation, no source budget; runs only after its zone's ingest
             assert t["name"].startswith("spreads_") and "limit_key" not in t
             assert t["deps"] == ["ingest_" + t["name"].removeprefix("spreads_")]

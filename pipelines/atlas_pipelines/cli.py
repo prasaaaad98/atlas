@@ -82,6 +82,9 @@ def main(argv: list[str] | None = None) -> int:
     bf.add_argument("--from", dest="from_", required=True)
     bf.add_argument("--to", required=True)
     bf.add_argument("--max-concurrent", type=int, default=4)
+    sr = sub.add_parser("schedule-report")
+    sr.add_argument("pipeline")
+    sr.add_argument("--since", help="YYYY-MM-DD (default: 30 days ago)")
     bs = sub.add_parser("backfill-status")
     bs.add_argument("backfill_id")
     cn = sub.add_parser("cancel")
@@ -148,7 +151,8 @@ def main(argv: list[str] | None = None) -> int:
             day += timedelta(days=1)
         return code
 
-    if args.cmd in ("register", "submit", "worker", "limits", "cancel", "schedule", "backfill", "backfill-status"):
+    if args.cmd in ("register", "submit", "worker", "limits", "cancel", "schedule", "backfill", "backfill-status",
+                    "schedule-report"):
         return atlas_command(args, pipelines, lake)
 
     if args.cmd == "catalog":
@@ -239,6 +243,14 @@ def atlas_command(args, pipelines, lake: str) -> int:
             detail = "" if status == 201 else out
             print(f"backfill {args.pipeline}: HTTP {status} id={(out or {}).get('id')} {detail}")
             return 0 if status == 201 else 1
+        if args.cmd == "schedule-report":
+            q = f"?pipeline={args.pipeline}" + (f"&since={args.since}" if args.since else "")
+            status, rows = client.call("GET", "/reports/schedule" + q)
+            if status != 200:
+                print(f"report: HTTP {status} {rows}")
+                return 1
+            print(schedule_report_text(rows))
+            return 0
         if args.cmd == "backfill-status":
             status, out = client.call("GET", f"/backfills/{args.backfill_id}")
             print(json.dumps(out, indent=2))
@@ -287,6 +299,32 @@ def atlas_command(args, pipelines, lake: str) -> int:
     except AtlasError as e:
         print(f"atlas: {e}")
         return 1
+
+
+def schedule_report_text(rows: list[dict]) -> str:
+    """Human table for GET /reports/schedule; lag counted only for fully-up days."""
+    def hhmm(ts):
+        return ts[11:16] if ts else "-"
+
+    lines = [f"{'partition':<11} {'status':<10} {'fired':>5} {'done':>5} {'lag_min':>7} {'waits':>5} "
+             f"{'published between (UTC)':<24} {'uptime':>7}  counted"]
+    counted = []
+    for r in rows:
+        lag = r.get("lag_seconds")
+        between = f"{hhmm(r.get('last_not_ready_at'))}-{hhmm(r.get('first_success_at'))}" if r.get("last_not_ready_at") else "-"
+        ok = r["fully_up"] and r["status"] == "SUCCEEDED"
+        if ok:
+            counted.append(lag / 60)
+        lines.append(f"{r['partition_key']:<11} {r['status']:<10} {hhmm(r['fired_at']):>5} {hhmm(r.get('finished_at')):>5} "
+                     f"{(f'{lag / 60:.1f}' if lag is not None else '-'):>7} {r['not_ready_attempts']:>5} {between:<24} "
+                     f"{r['uptime_coverage'] * 100:>6.0f}%  {'yes' if ok else 'no (downtime or not finished)'}")
+    if counted:
+        counted.sort()
+        lines.append(f"{len(counted)} of {len(rows)} days counted (Atlas up the whole time); lag minutes: "
+                     f"median {counted[len(counted) // 2]:.1f}, max {counted[-1]:.1f}")
+    else:
+        lines.append(f"0 of {len(rows)} days counted yet")
+    return "\n".join(lines)
 
 
 def atlas_pointers(client) -> list[dict]:

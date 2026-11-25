@@ -165,10 +165,15 @@ def make_task(market: Market, zone: str, *, opener=None, now: Callable[[], datet
 
     # Retries: 429/5xx/network and "not published yet" are retryable (raised as
     # RetryableTaskError); Atlas backs off with jitter (ADR-005) and pauses the
-    # `entsoe` key on 429 (ADR-008).
+    # `entsoe` key on 429 (ADR-008). Constant ≤5 min (full jitter over 300 s)
+    # for up to 36 attempts (~3 h): while a day isn't published yet, the gap
+    # between the last "not ready" and the first success brackets ENTSO-E's
+    # publication time to within one retry (the 14-day schedule measures it).
+    # Past days with no data fail at once (deadline passed), so a backfill
+    # doesn't spend these retries.
     return TaskDef(f"ingest_{slug}", ingest, asset_outputs=(bronze_asset, f"silver.{silver_dataset}"),
-                   max_attempts=8, limit_key="entsoe",
-                   retry={"initial_interval_seconds": 60, "backoff_coefficient": 2, "max_interval_seconds": 3600})
+                   max_attempts=36, limit_key="entsoe",
+                   retry={"initial_interval_seconds": 300, "backoff_coefficient": 1, "max_interval_seconds": 300})
 
 
 def make_spreads_task(market: Market, zone: str, ingest: TaskDef) -> TaskDef:
