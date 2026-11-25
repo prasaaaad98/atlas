@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4
+	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -77,6 +77,9 @@ demo-a3:       ## kill -9 a worker mid-task: reaper re-queues, new worker resume
 
 demo-a4:       ## retries: flaky task succeeds on attempt 3 after jittered backoff; auth failure never retried (needs make up, make migrate)
 	bash scripts/demo-a4.sh
+
+demo-a5:       ## DAG with a killed worker, cancel a running run, concurrency-1 limit key (needs make up, make migrate)
+	bash scripts/demo-a5.sh
 
 pipelines-venv: ## create pipelines/.venv and install the package with pinned deps
 	python -m venv pipelines/.venv

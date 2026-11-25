@@ -206,3 +206,16 @@ def test_retry_policy_and_max_attempts_are_registered():
     [t] = pipeline_definition(flaky)["tasks"]
     assert t["max_attempts"] == 4
     assert t["retry"] == {"initial_interval_seconds": 2, "backoff_coefficient": 2, "max_interval_seconds": 10}
+
+
+def test_source_tasks_declare_their_limit_keys(registry):
+    from atlas_pipelines.core.markets import load_registry
+    from atlas_pipelines.defs.prices import price_pipelines
+    from conftest import REPO
+    [prices] = price_pipelines(load_registry(REPO / "config" / "markets"))
+    for t in pipeline_definition(prices)["tasks"]:
+        assert t["limit_key"] == "entsoe" and t["max_attempts"] == 8
+        assert t["retry"]["initial_interval_seconds"] == 60
+    # Keys without a config file couldn't be registered with Atlas.
+    assert (REPO / "config" / "limits" / "entsoe.yaml").exists()
+    assert (REPO / "config" / "limits" / "openmeteo.yaml").exists()

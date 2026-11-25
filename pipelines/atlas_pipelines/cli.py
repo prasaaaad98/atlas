@@ -13,6 +13,8 @@
 With Atlas (control plane URL from --atlas or ATLAS_URL, default http://127.0.0.1:8080):
   python -m atlas_pipelines register <pipeline>           register the pipeline definition (POST /pipelines)
   python -m atlas_pipelines submit <pipeline> --partition YYYY-MM-DD [--to ..] [--priority live|backfill|adhoc]
+  python -m atlas_pipelines limits sync                   PUT every config/limits/*.yaml as an Atlas limit key
+  python -m atlas_pipelines cancel <run_id>               cancel a run (running workers stop at their next heartbeat)
   python -m atlas_pipelines worker [--max-tasks N] [--exit-when-idle]
                                                          claim and run tasks (same task code as `run`)
 
@@ -59,6 +61,10 @@ def main(argv: list[str] | None = None) -> int:
     sm.add_argument("--partition", required=True)
     sm.add_argument("--to")
     sm.add_argument("--priority", default="adhoc", choices=["live", "backfill", "adhoc"])
+    lm = sub.add_parser("limits")
+    lm.add_argument("action", choices=["sync"])
+    cn = sub.add_parser("cancel")
+    cn.add_argument("run_id")
     wk = sub.add_parser("worker")
     wk.add_argument("--worker-id", default=None)
     wk.add_argument("--max-tasks", type=int, default=None)
@@ -119,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
             day += timedelta(days=1)
         return code
 
-    if args.cmd in ("register", "submit", "worker"):
+    if args.cmd in ("register", "submit", "worker", "limits", "cancel"):
         return atlas_command(args, pipelines, lake)
 
     if args.cmd == "catalog":
@@ -172,6 +178,22 @@ def atlas_command(args, pipelines, lake: str) -> int:
     url = args.atlas or os.environ.get("ATLAS_URL", "http://127.0.0.1:8080")
     client = AtlasClient(urllib_send(url))
     try:
+        if args.cmd == "limits":
+            from atlas_pipelines.core.limits import load_limit
+
+            limits_dir = config.REPO_ROOT / "config" / "limits"
+            code = 0
+            for f in sorted(limits_dir.glob("*.yaml")):
+                lim = load_limit(f.stem, limits_dir)
+                status, out = client.call("PUT", f"/limit-keys/{lim.key}",
+                                          {"max_concurrency": lim.max_concurrency, "rpm": lim.rpm})
+                print(f"limit key {lim.key}: HTTP {status} {out}")
+                code |= 0 if status == 200 else 1
+            return code
+        if args.cmd == "cancel":
+            status, out = client.call("POST", f"/runs/{args.run_id}/cancel")
+            print(f"cancel {args.run_id}: HTTP {status} status={(out or {}).get('status')}")
+            return 0 if status == 200 else 1
         if args.cmd == "register":
             if args.pipeline not in pipelines:
                 print(f"unknown pipeline {args.pipeline!r}; try `list`")

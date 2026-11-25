@@ -66,7 +66,7 @@ def make_task(loc: archive.Location, market: Market):
         return mats, checks
 
     outputs = (f"bronze.openmeteo_archive_hourly__{loc.slug}", f"silver.{silver_dataset}")
-    return TaskDef(f"ingest_{loc.zone.lower()}", ingest, asset_outputs=outputs)
+    return TaskDef(f"ingest_{loc.zone.lower()}", ingest, asset_outputs=outputs, max_attempts=4, limit_key="openmeteo")
 
 
 def weather_pipelines(registry: dict[str, Market], locations_file: Path | None = None) -> list[Pipeline]:

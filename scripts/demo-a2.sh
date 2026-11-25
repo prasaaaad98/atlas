@@ -12,6 +12,7 @@ PY=${PY:-pipelines/.venv/Scripts/python.exe}
 [ -x "$PY" ] || PY=pipelines/.venv/bin/python
 PORT=${PORT:-18080}
 export ATLAS_URL="http://127.0.0.1:$PORT" ATLAS_ADDR="127.0.0.1:$PORT"
+export PYTHONUNBUFFERED=1  # worker logs appear as they happen
 export DATABASE_URL=${DATABASE_URL:-postgres://atlas:atlas@localhost:5432/atlas?sslmode=disable}
 # Repo-relative (bin/ is gitignored): Windows Go and Python would resolve /tmp against the drive.
 LAKE=bin/demo-a2

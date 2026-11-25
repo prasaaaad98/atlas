@@ -138,7 +138,12 @@ def make_task(market: Market, zone: str, *, opener=None, now: Callable[[], datet
         ))
         return mats, results + data_checks
 
-    return TaskDef(f"ingest_{slug}", ingest, asset_outputs=(bronze_asset, f"silver.{silver_dataset}"))
+    # Retries: 429/5xx/network and "not published yet" are retryable (raised as
+    # RetryableTaskError); Atlas backs off with jitter (ADR-005) and pauses the
+    # `entsoe` key on 429 (ADR-008).
+    return TaskDef(f"ingest_{slug}", ingest, asset_outputs=(bronze_asset, f"silver.{silver_dataset}"),
+                   max_attempts=8, limit_key="entsoe",
+                   retry={"initial_interval_seconds": 60, "backoff_coefficient": 2, "max_interval_seconds": 3600})
 
 
 def price_pipelines(registry: dict[str, Market], **task_kwargs) -> list[Pipeline]:

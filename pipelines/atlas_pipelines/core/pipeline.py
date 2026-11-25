@@ -36,6 +36,10 @@ class TaskDef:
     # backoff_coefficient, max_interval_seconds, non_retryable_error_classes.
     # None = Atlas's default policy.
     retry: dict | None = None
+    # Source politeness budget (Atlas limit key, A5): config/limits/<key>.yaml,
+    # registered with `python -m atlas_pipelines limits sync`. The local runner
+    # ignores it (its fetchers use an in-process RateLimiter on the same key).
+    limit_key: str | None = None
 
 
 @dataclass(frozen=True)
