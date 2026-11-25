@@ -10,6 +10,12 @@
   python -m atlas_pipelines fetch-fixture entsoe --zone ES --date YYYY-MM-DD --label normal_A01
                                                          owner-run: same for ENTSO-E (needs ENTSOE_TOKEN)
 
+With Atlas (control plane URL from --atlas or ATLAS_URL, default http://127.0.0.1:8080):
+  python -m atlas_pipelines register <pipeline>           register the pipeline definition (POST /pipelines)
+  python -m atlas_pipelines submit <pipeline> --partition YYYY-MM-DD [--to ..] [--priority live|backfill|adhoc]
+  python -m atlas_pipelines worker [--max-tasks N] [--exit-when-idle]
+                                                         claim and run tasks (same task code as `run`)
+
 Secrets: ENTSOE_TOKEN is read from the environment, or from the repo's .env
 (KEY=VALUE lines) when unset. It is never printed; URLs are shown redacted.
 
@@ -37,6 +43,7 @@ from atlas_pipelines.defs import build_pipelines
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="atlas_pipelines")
     ap.add_argument("--lake-root", default=None, help="path or file:// URI (default: $LAKE_ROOT or ./lake)")
+    ap.add_argument("--atlas", default=None, help="control plane URL (default: $ATLAS_URL or http://127.0.0.1:8080)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("markets")
     sub.add_parser("list")
@@ -45,6 +52,17 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--partition", required=True)
     r.add_argument("--to", help="last partition (inclusive): run each day from --partition to --to")
     sub.add_parser("catalog")
+    reg = sub.add_parser("register")
+    reg.add_argument("pipeline")
+    sm = sub.add_parser("submit")
+    sm.add_argument("pipeline")
+    sm.add_argument("--partition", required=True)
+    sm.add_argument("--to")
+    sm.add_argument("--priority", default="adhoc", choices=["live", "backfill", "adhoc"])
+    wk = sub.add_parser("worker")
+    wk.add_argument("--worker-id", default=None)
+    wk.add_argument("--max-tasks", type=int, default=None)
+    wk.add_argument("--exit-when-idle", action="store_true")
     s = sub.add_parser("show")
     s.add_argument("asset_key")
     f = sub.add_parser("fetch-fixture")
@@ -100,6 +118,9 @@ def main(argv: list[str] | None = None) -> int:
             day += timedelta(days=1)
         return code
 
+    if args.cmd in ("register", "submit", "worker"):
+        return atlas_command(args, pipelines, lake)
+
     if args.cmd == "catalog":
         path, counts = build_catalog(lake)
         print(f"catalog: {path}")
@@ -136,6 +157,53 @@ def main(argv: list[str] | None = None) -> int:
             print("  " + " | ".join(str(v) for v in row))
         return 0
     return 2
+
+
+def atlas_command(args, pipelines, lake: str) -> int:
+    """register / submit / worker against a running control plane."""
+    import os
+    import socket
+    from datetime import timedelta
+
+    from atlas_pipelines.core.markets import parse_partition_date
+    from atlas_pipelines.worker import AtlasClient, AtlasError, pipeline_definition, urllib_send, work
+
+    url = args.atlas or os.environ.get("ATLAS_URL", "http://127.0.0.1:8080")
+    client = AtlasClient(urllib_send(url))
+    try:
+        if args.cmd == "register":
+            if args.pipeline not in pipelines:
+                print(f"unknown pipeline {args.pipeline!r}; try `list`")
+                return 2
+            status, out = client.call("POST", "/pipelines", pipeline_definition(pipelines[args.pipeline]))
+            print(f"register {args.pipeline}: HTTP {status} version={out.get('version') if out else None}")
+            return 0 if status in (200, 201) else 1
+        if args.cmd == "submit":
+            first = parse_partition_date(args.partition)
+            last = parse_partition_date(args.to) if args.to else first
+            trigger = {"live": "schedule", "backfill": "backfill", "adhoc": "manual"}[args.priority]
+            code, day = 0, first
+            while day <= last:
+                key = f"cli:{args.pipeline}:{day.isoformat()}:{args.priority}"
+                status, out = client.call("POST", "/runs", {
+                    "idempotency_key": key, "pipeline": args.pipeline, "partition_key": day.isoformat(),
+                    "trigger": trigger, "priority_class": args.priority})
+                print(f"submit {args.pipeline} {day}: HTTP {status} run={(out or {}).get('id') or out}")
+                code |= 0 if status in (200, 201) else 1
+                day += timedelta(days=1)
+            return code
+        worker_id = args.worker_id or f"{socket.gethostname()}-{os.getpid()}"
+
+        def show(o):
+            print(f"{o.pipeline}.{o.task} {o.partition_key} attempt={o.attempt_id[:8]} -> "
+                  f"{o.reported} task={o.task_status} run={o.run_status} {o.detail[:120]}")
+        n = work(client, pipelines, lake, worker_id, max_tasks=args.max_tasks,
+                 exit_when_idle=args.exit_when_idle, on_outcome=show)
+        print(f"worker {worker_id}: {n} task(s)")
+        return 0
+    except AtlasError as e:
+        print(f"atlas: {e}")
+        return 1
 
 
 def _run_one(pipeline, partition: str, lake: str) -> int:

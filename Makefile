@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 ingest-entsoe
+	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -68,6 +68,9 @@ demo-a1:       ## kill atlas right after a 201, restart, show the run survived (
 
 demo-a0:       ## state machine trace: lease lapses, retry succeeds, stale completion rejected
 	go test ./internal/domain -run Example -v
+
+demo-a2:       ## real control plane + two Python workers: claim order, attempts, stale report rejected (needs make up, make migrate)
+	bash scripts/demo-a2.sh
 
 pipelines-venv: ## create pipelines/.venv and install the package with pinned deps
 	python -m venv pipelines/.venv
