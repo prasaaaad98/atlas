@@ -156,10 +156,12 @@ def pipeline_definition(p: Pipeline) -> dict:
         "name": p.name,
         "partition_kind": "daily",
         "partition_tz": p.partition_tz,
+        **({"deadline": p.deadline} if p.deadline else {}),
         "tasks": [
             {"name": t.name, "deps": list(t.deps), "asset_outputs": list(t.asset_outputs),
              "max_attempts": t.max_attempts, **({"retry": t.retry} if t.retry else {}),
-             **({"limit_key": t.limit_key} if t.limit_key else {})}
+             **({"limit_key": t.limit_key} if t.limit_key else {}),
+             **({"estimate_seconds": t.estimate_seconds} if t.estimate_seconds else {})}
             for t in p.tasks
         ],
     }

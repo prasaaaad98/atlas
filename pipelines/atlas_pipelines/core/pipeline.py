@@ -40,6 +40,9 @@ class TaskDef:
     # registered with `python -m atlas_pipelines limits sync`. The local runner
     # ignores it (its fetchers use an in-process RateLimiter on the same key).
     limit_key: str | None = None
+    # Declared duration for Atlas deadline at-risk estimates until there is
+    # measured history (A7). 0 = unknown.
+    estimate_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,10 @@ class Pipeline:
     partition_tz: str  # IANA zone the partition date is defined in (from the market registry)
     tasks: tuple[TaskDef, ...]
     description: str = ""
+    # Atlas deadline rule (A7, ADR-012): {"relative_to": "partition_start" |
+    # "partition_end", "offset_minutes": int, "late_policy": "continue" |
+    # "cancel", "fallback_pipeline": name}. None = no deadline.
+    deadline: dict | None = None
     order: tuple[str, ...] = field(init=False)
 
     def __post_init__(self) -> None:

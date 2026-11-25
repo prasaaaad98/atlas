@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6
+	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -83,6 +83,9 @@ demo-a5:       ## DAG with a killed worker, cancel a running run, concurrency-1 
 
 demo-a6:       ## catchup schedule across a control-plane kill -9; bounded backfill with a live run (needs make up, make migrate)
 	bash scripts/demo-a6.sh
+
+demo-a7:       ## EDF claim order, at-risk before miss, late policy cancel + fallback (needs make up, make migrate)
+	bash scripts/demo-a7.sh
 
 pipelines-venv: ## create pipelines/.venv and install the package with pinned deps
 	python -m venv pipelines/.venv

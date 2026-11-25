@@ -15,6 +15,8 @@ Who calls it: defs/__init__.py; scripts/demo-a*.sh run them through workers.
   engine_diamond   fetch → (parse_a, parse_b) → publish, 0.3 s each (A5 readiness).
   engine_limited   one task on limit key `demo_one` (concurrency 1), 0.5 s (A5 admission).
   engine_quick     one 50 ms task (A6 schedules and backfills).
+  engine_slow      one 4 s task, declared estimate 4 s (A7 EDF, at-risk and misses).
+  engine_strict    like engine_slow with late_policy=cancel and fallback engine_quick (A7).
 Timing knob: ATLAS_DEMO_CHUNK_SECONDS (default 1.0) per chunk.
 """
 
@@ -82,6 +84,12 @@ def engine_demo_pipelines() -> list[Pipeline]:
         ), description="Engine demo (A5): diamond DAG"),
         Pipeline("engine_quick", "Europe/Brussels", (TaskDef("work", sleeper(0.05), max_attempts=3),),
                  description="Engine demo (A6): quick task for schedules and backfills"),
+        Pipeline("engine_slow", "UTC", (TaskDef("work", sleeper(4), estimate_seconds=4),),
+                 description="Engine demo (A7): 4 s task with a declared estimate"),
+        Pipeline("engine_strict", "UTC", (TaskDef("work", sleeper(4), estimate_seconds=4),),
+                 deadline={"relative_to": "partition_end", "offset_minutes": 0, "late_policy": "cancel",
+                           "fallback_pipeline": "engine_quick"},
+                 description="Engine demo (A7): cancel on a missed deadline, fall back to engine_quick"),
         Pipeline("engine_limited", "UTC", (TaskDef("fetch", sleeper(0.5), limit_key="demo_one"),),
                  description="Engine demo (A5): limit key demo_one, concurrency 1"),
     ]

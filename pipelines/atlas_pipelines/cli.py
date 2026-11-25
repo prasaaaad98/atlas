@@ -63,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
     sm.add_argument("--partition", required=True)
     sm.add_argument("--to")
     sm.add_argument("--priority", default="adhoc", choices=["live", "backfill", "adhoc"])
+    sm.add_argument("--deadline-in", type=float, help="explicit deadline: this many seconds from now (else the pipeline's rule)")
+    sm.add_argument("--deadline-at", type=float, help="explicit deadline as a Unix timestamp (else the pipeline's rule)")
     lm = sub.add_parser("limits")
     lm.add_argument("action", choices=["sync"])
     sc = sub.add_parser("schedule")
@@ -243,9 +245,15 @@ def atlas_command(args, pipelines, lake: str) -> int:
             code, day = 0, first
             while day <= last:
                 key = f"cli:{args.pipeline}:{day.isoformat()}:{args.priority}"
-                status, out = client.call("POST", "/runs", {
-                    "idempotency_key": key, "pipeline": args.pipeline, "partition_key": day.isoformat(),
-                    "trigger": trigger, "priority_class": args.priority})
+                body = {"idempotency_key": key, "pipeline": args.pipeline, "partition_key": day.isoformat(),
+                        "trigger": trigger, "priority_class": args.priority}
+                if args.deadline_in is not None or args.deadline_at is not None:
+                    from datetime import datetime, timezone
+                    dl = (datetime.fromtimestamp(args.deadline_at, timezone.utc) if args.deadline_at is not None
+                          else datetime.now(timezone.utc) + timedelta(seconds=args.deadline_in))
+                    body["deadline_at"] = dl.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                    body["idempotency_key"] = f"{key}:{dl.timestamp():.0f}"
+                status, out = client.call("POST", "/runs", body)
                 print(f"submit {args.pipeline} {day}: HTTP {status} run={(out or {}).get('id') or out}")
                 code |= 0 if status in (200, 201) else 1
                 day += timedelta(days=1)
