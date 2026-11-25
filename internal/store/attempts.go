@@ -102,37 +102,73 @@ func (s *Store) Claim(ctx context.Context, req ClaimRequest) (Claim, bool, error
 	var attemptCount int
 	var token int64
 	var checkpoint []byte
-	// No double claims: FOR NO KEY UPDATE locks the chosen row until COMMIT
-	// (it conflicts with itself, so no second claimer can hold it), and SKIP
-	// LOCKED makes a concurrent claimer take the next unlocked row instead of
-	// waiting. NO KEY UPDATE rather than UPDATE: it doesn't conflict with the
-	// KEY SHARE locks that foreign-key inserts (attempts, events) take, which
-	// would otherwise deadlock (see syncRunStatus). Under READ COMMITTED, Postgres re-checks `status = 'READY'`
-	// on the locked row's latest version, so a row another claimer just leased
-	// is never returned. The ORDER BY matches the tasks_claim partial index:
-	// live before ad-hoc before backfill, then earliest deadline, then FIFO.
-	// available_at <= now() uses the database clock, the only clock Atlas trusts.
-	err = tx.QueryRow(ctx, `
-		SELECT id, run_id, name, attempt_count, fencing_token, priority_class, asset_outputs, checkpoint
-		FROM tasks
-		WHERE status = 'READY' AND available_at <= now()
-		ORDER BY priority_rank, deadline_at NULLS LAST, available_at, id
-		LIMIT 1
-		FOR NO KEY UPDATE SKIP LOCKED`,
-	).Scan(&c.TaskID, &c.RunID, &c.TaskName, &attemptCount, &token, &c.PriorityClass, &c.AssetOutputs, &checkpoint)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Claim{}, false, nil
-	}
-	if err != nil {
-		return Claim{}, false, err
+	var limitKey *string
+	full := []string{} // limit keys found at their limit in this claim; skip their tasks
+	for {
+		if len(full) > maxKeysPerClaim {
+			return Claim{}, false, nil // many saturated keys: report "nothing ready", the worker polls again
+		}
+		if _, err := tx.Exec(ctx, `SAVEPOINT candidate`); err != nil {
+			return Claim{}, false, err
+		}
+		// No double claims: FOR NO KEY UPDATE locks the chosen row until COMMIT
+		// (it conflicts with itself, so no second claimer can hold it), and SKIP
+		// LOCKED makes a concurrent claimer take the next unlocked row instead of
+		// waiting. NO KEY UPDATE rather than UPDATE: it doesn't conflict with the
+		// KEY SHARE locks that foreign-key inserts (attempts, events) take, which
+		// would otherwise deadlock (ADR-015). Under READ COMMITTED, Postgres
+		// re-checks `status = 'READY'` on the locked row's latest version, so a
+		// row another claimer just leased is never returned. The ORDER BY matches
+		// the tasks_claim partial index: live before ad-hoc before backfill, then
+		// earliest deadline, then FIFO. available_at <= now() and paused_until
+		// use the database clock, the only clock Atlas trusts.
+		err = tx.QueryRow(ctx, `
+			SELECT t.id, t.run_id, t.name, t.attempt_count, t.fencing_token, t.priority_class, t.asset_outputs,
+			       t.checkpoint, t.limit_key
+			FROM tasks t
+			WHERE t.status = 'READY' AND t.available_at <= now()
+			  -- coalesce: a NULL array would make "NOT (key = ANY(NULL))" NULL and hide every keyed task.
+			  AND (t.limit_key IS NULL OR (NOT (t.limit_key = ANY(coalesce($1::text[], '{}')))
+			       AND NOT EXISTS (SELECT 1 FROM limit_keys k WHERE k.key = t.limit_key AND k.paused_until > now())))
+			ORDER BY t.priority_rank, t.deadline_at NULLS LAST, t.available_at, t.id
+			LIMIT 1
+			FOR NO KEY UPDATE OF t SKIP LOCKED`, full,
+		).Scan(&c.TaskID, &c.RunID, &c.TaskName, &attemptCount, &token, &c.PriorityClass, &c.AssetOutputs,
+			&checkpoint, &limitKey)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Claim{}, false, nil
+		}
+		if err != nil {
+			return Claim{}, false, err
+		}
+		if limitKey == nil {
+			break
+		}
+		admitted, err := admit(ctx, tx, *limitKey)
+		if err != nil {
+			return Claim{}, false, err
+		}
+		if admitted {
+			break
+		}
+		// Key at its limit: release this task's row lock (rolling back to the
+		// savepoint undoes the lock taken after it) and look past that key.
+		if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT candidate`); err != nil {
+			return Claim{}, false, err
+		}
+		full = append(full, *limitKey)
 	}
 
 	c.AttemptNumber, c.FencingToken = attemptCount+1, token+1
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO task_attempts (task_id, run_id, attempt_number, fencing_token, worker_id, status, lease_expires_at)
-		VALUES ($1, $2, $3, $4, $5, 'LEASED', now() + make_interval(secs => $6))
+		-- clock_timestamp(), not now(): now() is this transaction's START, which
+		-- can be well before the lease is granted when the claim waited for a
+		-- limit-key lock. The lease (and the history) start when it's granted.
+		INSERT INTO task_attempts (task_id, run_id, attempt_number, fencing_token, worker_id, status,
+		                           leased_at, lease_expires_at, limit_key)
+		VALUES ($1, $2, $3, $4, $5, 'LEASED', clock_timestamp(), clock_timestamp() + make_interval(secs => $6), $7)
 		RETURNING id, lease_expires_at`,
-		c.TaskID, c.RunID, c.AttemptNumber, c.FencingToken, req.WorkerID, req.LeaseSeconds,
+		c.TaskID, c.RunID, c.AttemptNumber, c.FencingToken, req.WorkerID, req.LeaseSeconds, limitKey,
 	).Scan(&c.AttemptID, &c.LeaseExpiresAt); err != nil {
 		return Claim{}, false, err
 	}
@@ -217,6 +253,7 @@ type heldTask struct {
 	attemptToken   int64
 	leaseLive      bool // lease_expires_at > now() on the database clock
 	policy         domain.RetryPolicy
+	limitKey       *string
 }
 
 // lockByAttempt locks the task row an attempt belongs to (lock order: task first).
@@ -230,12 +267,12 @@ func lockByAttempt(ctx context.Context, tx pgx.Tx, attemptID string) (heldTask, 
 	err := tx.QueryRow(ctx, `
 		SELECT t.id, t.run_id, t.status, t.current_attempt_id, t.fencing_token, t.max_attempts,
 		       a.attempt_number, a.status, a.fencing_token,
-		       coalesce(t.lease_expires_at > now(), false), t.retry_policy
+		       coalesce(t.lease_expires_at > now(), false), t.retry_policy, t.limit_key
 		FROM task_attempts a JOIN tasks t ON t.id = a.task_id
 		WHERE a.id = $1
 		FOR NO KEY UPDATE OF t`, attemptID,
 	).Scan(&h.taskID, &h.runID, &st, &h.currentAttempt, &h.token, &h.maxAttempts,
-		&h.attemptNumber, &h.attemptStatus, &h.attemptToken, &h.leaseLive, &policy)
+		&h.attemptNumber, &h.attemptStatus, &h.attemptToken, &h.leaseLive, &policy, &h.limitKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return heldTask{}, fmt.Errorf("attempt %s: %w", attemptID, ErrNotFound)
 	}
@@ -376,6 +413,11 @@ func (s *Store) Complete(ctx context.Context, attemptID string, req CompleteRequ
 				"attempt_id": attemptID, "status": attemptStatus, "failed_blocking_checks": failed,
 				"materializations": mats, "checks": req.Checks})
 		}
+		if err == nil {
+			// Same transaction (ADR-003 decision 6): dependents become READY, or
+			// are canceled after a failed blocking check.
+			err = afterTaskEnded(ctx, tx, h.runID, h.taskID, next)
+		}
 		return next, err
 	})
 }
@@ -413,6 +455,14 @@ func (s *Store) Fail(ctx context.Context, attemptID string, req FailRequest) (At
 				"worker_retryable": req.Retryable, "retryable": retryable, "next_state": next,
 				"retry_in_seconds": map[bool]any{true: delay, false: nil}[next == domain.Ready]})
 		}
+		if err == nil && req.ErrorClass == rateLimitedErrorClass && h.limitKey != nil {
+			// The source said "too many requests": stop every claim on this key,
+			// not only this task's retry (ADR-008).
+			err = pauseKey(ctx, tx, h.runID, h.taskID, *h.limitKey, req.RetryAfterSeconds)
+		}
+		if err == nil {
+			err = afterTaskEnded(ctx, tx, h.runID, h.taskID, next)
+		}
 		return next, err
 	})
 }
@@ -420,7 +470,19 @@ func (s *Store) Fail(ctx context.Context, attemptID string, req FailRequest) (At
 // transition runs one attempt report: lock, fence, apply, derive run status.
 // A report repeated with the same token after it was applied (e.g. the HTTP
 // response was lost) is answered as a replay instead of an error (ADR-001).
+// A deadlock with CancelRun (which locks many tasks) is retried whole.
 func (s *Store) transition(ctx context.Context, attemptID string, token int64, wantAttemptStatus string,
+	apply func(context.Context, pgx.Tx, heldTask) (domain.State, error)) (AttemptResult, error) {
+	var res AttemptResult
+	err := retryDeadlock(ctx, func() error {
+		var err error
+		res, err = s.transitionOnce(ctx, attemptID, token, wantAttemptStatus, apply)
+		return err
+	})
+	return res, err
+}
+
+func (s *Store) transitionOnce(ctx context.Context, attemptID string, token int64, wantAttemptStatus string,
 	apply func(context.Context, pgx.Tx, heldTask) (domain.State, error)) (AttemptResult, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -466,8 +528,7 @@ func (s *Store) transition(ctx context.Context, attemptID string, token int64, w
 // transaction takes a KEY SHARE lock on the run row through its foreign key,
 // and FOR UPDATE conflicts with KEY SHARE, so two transitions of the same run
 // would deadlock (found by TestConcurrentClaimersNeverDoubleClaim). NO KEY
-// UPDATE still conflicts with itself, so transitions of one run serialise here,
-// so concurrent transitions of the same run's tasks are serialised here. In
+// UPDATE still conflicts with itself, so transitions of one run serialise here. In
 // READ COMMITTED the task SELECT below takes a new snapshot after the lock is
 // granted, so it sees every task transition committed before ours: two
 // workers finishing a run's last two tasks at once can't both see "one still

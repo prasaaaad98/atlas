@@ -146,6 +146,20 @@ func (s *Store) RegisterPipeline(ctx context.Context, def PipelineDef) (Pipeline
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, def.Name); err != nil {
 		return Pipeline{}, false, err
 	}
+	// Every limit key a task names must exist, or its tasks could never be claimed.
+	for _, t := range def.Tasks {
+		if t.LimitKey == "" {
+			continue
+		}
+		var ok bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM limit_keys WHERE key = $1)`, t.LimitKey).Scan(&ok); err != nil {
+			return Pipeline{}, false, err
+		}
+		if !ok {
+			return Pipeline{}, false, fmt.Errorf("%w: task %q uses unknown limit key %q (PUT /limit-keys/%s first)",
+				ErrInvalid, t.Name, t.LimitKey, t.LimitKey)
+		}
+	}
 	p := Pipeline{Name: def.Name, Def: stored}
 	err = tx.QueryRow(ctx,
 		`SELECT version, created_at FROM pipelines WHERE name = $1 AND definition_hash = $2`,
@@ -359,9 +373,9 @@ func (s *Store) submitTx(ctx context.Context, req SubmitRequest, hash string) (R
 			policy, _ = json.Marshal(t.Retry)
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO tasks (run_id, name, status, priority_class, deadline_at, max_attempts, asset_outputs, retry_policy)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-			run.ID, t.Name, string(st), run.PriorityClass, run.DeadlineAt, maxAttempts, nonNil(t.AssetOutputs), policy,
+			INSERT INTO tasks (run_id, name, status, priority_class, deadline_at, max_attempts, asset_outputs, retry_policy, limit_key)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, nullif($9, '')) RETURNING id`,
+			run.ID, t.Name, string(st), run.PriorityClass, run.DeadlineAt, maxAttempts, nonNil(t.AssetOutputs), policy, t.LimitKey,
 		).Scan(&id); err != nil {
 			return Run{}, false, err
 		}

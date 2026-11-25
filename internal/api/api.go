@@ -24,6 +24,12 @@
 //	POST /attempts/{id}/fail       RUNNING/LEASED -> READY (retry) or FAILED_TERMINAL
 //	POST /attempts/{id}/heartbeat  extend the lease, store a checkpoint; 200 {cancel_requested}
 //
+// A5 endpoints:
+//
+//	POST /runs/{id}/cancel         cancel every unfinished task; 200 run (idempotent), 404
+//	PUT  /limit-keys/{key}         create/update {max_concurrency, rpm}; 200
+//	GET  /limit-keys/{key}         limits, pause, live and last-minute counts; 200, 404
+//
 // A repeated report with the same fencing token (lost response) returns 200
 // with "replay": true; a report from an attempt that no longer holds the task
 // returns 409 stale_attempt.
@@ -53,6 +59,9 @@ type Store interface {
 	Complete(ctx context.Context, attemptID string, req store.CompleteRequest) (store.AttemptResult, error)
 	Fail(ctx context.Context, attemptID string, req store.FailRequest) (store.AttemptResult, error)
 	Heartbeat(ctx context.Context, attemptID string, req store.HeartbeatRequest) (store.HeartbeatResult, error)
+	CancelRun(ctx context.Context, runID string) (store.Run, error)
+	UpsertLimitKey(ctx context.Context, k store.LimitKey) (store.LimitKey, error)
+	GetLimitKey(ctx context.Context, key string) (store.LimitKey, error)
 }
 
 func Handler(s Store, log *slog.Logger) http.Handler {
@@ -138,6 +147,37 @@ func Handler(s Store, log *slog.Logger) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, res)
+	})
+	mux.HandleFunc("POST /runs/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
+		run, err := s.CancelRun(r.Context(), r.PathValue("id"))
+		if err != nil {
+			writeErr(w, log, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, run)
+	})
+	mux.HandleFunc("PUT /limit-keys/{key}", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			MaxConcurrency int `json:"max_concurrency"`
+			RPM            int `json:"rpm"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		k, err := s.UpsertLimitKey(r.Context(), store.LimitKey{Key: r.PathValue("key"), MaxConcurrency: body.MaxConcurrency, RPM: body.RPM})
+		if err != nil {
+			writeErr(w, log, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, k)
+	})
+	mux.HandleFunc("GET /limit-keys/{key}", func(w http.ResponseWriter, r *http.Request) {
+		k, err := s.GetLimitKey(r.Context(), r.PathValue("key"))
+		if err != nil {
+			writeErr(w, log, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, k)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)

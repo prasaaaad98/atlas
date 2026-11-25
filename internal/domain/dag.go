@@ -35,6 +35,9 @@ type TaskSpec struct {
 	MaxAttempts  int      `json:"max_attempts,omitempty"` // 0 means 1 (no retry)
 	// Retry policy (A4); nil means DefaultRetryPolicy.
 	Retry *RetryPolicy `json:"retry,omitempty"`
+	// LimitKey names the source politeness budget this task draws on (A5,
+	// ADR-008); it must be registered (PUT /limit-keys/{key}) first.
+	LimitKey string `json:"limit_key,omitempty"`
 }
 
 // ValidateDAG checks names, dependencies and acyclicity.

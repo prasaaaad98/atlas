@@ -42,6 +42,16 @@ func (s *Store) ReapExpired(ctx context.Context, limit int) (int, error) {
 }
 
 func (s *Store) reapOne(ctx context.Context) (bool, error) {
+	var done bool
+	err := retryDeadlock(ctx, func() error {
+		var err error
+		done, err = s.reapOnceTx(ctx)
+		return err
+	})
+	return done, err
+}
+
+func (s *Store) reapOnceTx(ctx context.Context) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return false, err
@@ -94,6 +104,9 @@ func (s *Store) reapOne(ctx context.Context) (bool, error) {
 	}
 	if err := taskEvent(ctx, tx, runID, taskID, "task.lease_expired", map[string]any{
 		"attempt_id": attemptID, "attempt_number": attempts, "next_state": next}); err != nil {
+		return false, err
+	}
+	if err := afterTaskEnded(ctx, tx, runID, taskID, next); err != nil {
 		return false, err
 	}
 	if _, err := syncRunStatus(ctx, tx, runID); err != nil {
