@@ -227,3 +227,18 @@ func TestFreshnessPolicyValidated(t *testing.T) {
 		}
 	}
 }
+
+func TestAssetPartitionLookup(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	mustRegister(t, s, assetDef(nil))
+	mustSubmit(t, s, "prices", "2026-11-24", "live")
+	completeWith(t, s, mustClaim(t, s, "w"), []Materialization{mat("2026-11-24", hashA)}, nil)
+	p, err := s.AssetPartition(ctx, "silver.power_prices__x", "2026-11-24")
+	if err != nil || p.Current == nil || p.Current.ContentHash != hashA || p.Status != "fresh" {
+		t.Fatalf("lookup: %+v %v", p, err)
+	}
+	if _, err := s.AssetPartition(ctx, "silver.power_prices__x", "2026-11-25"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown partition: %v", err)
+	}
+}

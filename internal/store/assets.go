@@ -224,15 +224,34 @@ func (s *Store) ListAssets(ctx context.Context) ([]Asset, error) {
 	return out, rows.Err()
 }
 
+// AssetPartition returns one partition's current pointer: what a downstream
+// task reads (worker resolve_input). ErrNotFound if Atlas has no record of it.
+func (s *Store) AssetPartition(ctx context.Context, key, partition string) (AssetPartition, error) {
+	ps, err := s.assetPartitions(ctx, key, partition, 1)
+	if err != nil {
+		return AssetPartition{}, err
+	}
+	if len(ps) == 0 {
+		return AssetPartition{}, fmt.Errorf("asset %s partition %s: %w", key, partition, ErrNotFound)
+	}
+	return ps[0], nil
+}
+
 func (s *Store) AssetPartitions(ctx context.Context, key string, limit int) ([]AssetPartition, error) {
-	if limit <= 0 || limit > 1000 {
+	// Up to a full backfill's worth (maxBackfillPartitions): the catalog reads every current pointer.
+	if limit <= 0 || limit > maxBackfillPartitions {
 		limit = 100
 	}
+	return s.assetPartitions(ctx, key, "", limit)
+}
+
+func (s *Store) assetPartitions(ctx context.Context, key, partition string, limit int) ([]AssetPartition, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT p.partition_key, p.status, p.late_since, p.updated_at, p.current_materialization_id, m.attempt_id,
 		       m.asset_key, m.partition_key, m.uri, m.row_count, m.content_hash, m.schema_version, m.code_version
 		FROM asset_partitions p LEFT JOIN materializations m ON m.id = p.current_materialization_id
-		WHERE p.asset_key = $1 ORDER BY p.partition_key DESC LIMIT $2`, key, limit)
+		WHERE p.asset_key = $1 AND ($2 = '' OR p.partition_key = $2)
+		ORDER BY p.partition_key DESC LIMIT $3`, key, partition, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -42,6 +42,7 @@
 //
 //	GET  /assets                     assets with partition counts by status
 //	GET  /assets/{key}/partitions    current pointer and status per partition (?limit=, newest first)
+//	GET  /assets/{key}/partitions/{p} one partition (what a worker's resolve_input reads); 404 if unknown
 //
 // A repeated report with the same fencing token (lost response) returns 200
 // with "replay": true; a report from an attempt that no longer holds the task
@@ -83,6 +84,7 @@ type Store interface {
 	CancelBackfill(ctx context.Context, id string) (store.Backfill, error)
 	ListAssets(ctx context.Context) ([]store.Asset, error)
 	AssetPartitions(ctx context.Context, key string, limit int) ([]store.AssetPartition, error)
+	AssetPartition(ctx context.Context, key, partition string) (store.AssetPartition, error)
 	Metrics(ctx context.Context) (store.MetricsSnapshot, error)
 	Timeline(ctx context.Context, runID string) ([]store.TimelineEvent, []store.TimelineAttempt, error)
 	ReadySignal() <-chan struct{}
@@ -249,6 +251,10 @@ func Handler(s Store, log *slog.Logger) http.Handler {
 		if out == nil {
 			out = []store.AssetPartition{}
 		}
+		respond(w, log, http.StatusOK, out, err)
+	})
+	mux.HandleFunc("GET /assets/{key}/partitions/{partition}", func(w http.ResponseWriter, r *http.Request) {
+		out, err := s.AssetPartition(r.Context(), r.PathValue("key"), r.PathValue("partition"))
 		respond(w, log, http.StatusOK, out, err)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
