@@ -192,6 +192,8 @@ type SubmitRequest struct {
 	Trigger         string     `json:"trigger"`
 	PriorityClass   string     `json:"priority_class"`
 	DeadlineAt      *time.Time `json:"deadline_at,omitempty"` // computed from deadline_rule in A7
+
+	backfillID string // set only by AdvanceBackfills; not part of the API or the request hash
 }
 
 type Task struct {
@@ -335,12 +337,12 @@ func (s *Store) submitTx(ctx context.Context, req SubmitRequest, hash string) (R
 	// surfaces as an error and becomes ActiveRunError after the key re-check.
 	err = tx.QueryRow(ctx, `
 		INSERT INTO workflow_runs (tenant_id, idempotency_key, request_hash, pipeline_name, pipeline_version,
-		    partition_key, data_interval_start, data_interval_end, trigger, priority_class, status, deadline_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		    partition_key, data_interval_start, data_interval_end, trigger, priority_class, status, deadline_at, backfill_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, nullif($13, '')::uuid)
 		ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 		RETURNING id, created_at`,
 		run.TenantID, run.IdempotencyKey, hash, run.PipelineName, run.PipelineVersion, run.PartitionKey,
-		start, end, run.Trigger, run.PriorityClass, string(run.Status), run.DeadlineAt,
+		start, end, run.Trigger, run.PriorityClass, string(run.Status), run.DeadlineAt, req.backfillID,
 	).Scan(&run.ID, &run.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Run{}, false, errRetryLookup // key exists: caller resolves replay vs mismatch

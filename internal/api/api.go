@@ -30,6 +30,14 @@
 //	PUT  /limit-keys/{key}         create/update {max_concurrency, rpm}; 200
 //	GET  /limit-keys/{key}         limits, pause, live and last-minute counts; 200, 404
 //
+// A6 endpoints:
+//
+//	PUT  /pipelines/{name}/schedule  {cron, tz, partition_offset_days, catchup, start_partition, enabled}
+//	GET  /pipelines/{name}/schedule
+//	POST /backfills                  {pipeline, from_partition, to_partition, max_concurrent_runs}; 201
+//	GET  /backfills/{id}             progress (run counts by status)
+//	POST /backfills/{id}/cancel      stop creating runs, cancel its active runs
+//
 // A repeated report with the same fencing token (lost response) returns 200
 // with "replay": true; a report from an attempt that no longer holds the task
 // returns 409 stale_attempt.
@@ -62,6 +70,11 @@ type Store interface {
 	CancelRun(ctx context.Context, runID string) (store.Run, error)
 	UpsertLimitKey(ctx context.Context, k store.LimitKey) (store.LimitKey, error)
 	GetLimitKey(ctx context.Context, key string) (store.LimitKey, error)
+	SetSchedule(ctx context.Context, sch store.Schedule) (store.Schedule, error)
+	GetSchedule(ctx context.Context, pipeline string) (store.Schedule, error)
+	CreateBackfill(ctx context.Context, req store.BackfillRequest) (store.Backfill, error)
+	GetBackfill(ctx context.Context, id string) (store.Backfill, error)
+	CancelBackfill(ctx context.Context, id string) (store.Backfill, error)
 }
 
 func Handler(s Store, log *slog.Logger) http.Handler {
@@ -179,6 +192,35 @@ func Handler(s Store, log *slog.Logger) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, k)
 	})
+	mux.HandleFunc("PUT /pipelines/{name}/schedule", func(w http.ResponseWriter, r *http.Request) {
+		var sch store.Schedule
+		if !decode(w, r, &sch) {
+			return
+		}
+		sch.PipelineName = r.PathValue("name")
+		out, err := s.SetSchedule(r.Context(), sch)
+		respond(w, log, http.StatusOK, out, err)
+	})
+	mux.HandleFunc("GET /pipelines/{name}/schedule", func(w http.ResponseWriter, r *http.Request) {
+		out, err := s.GetSchedule(r.Context(), r.PathValue("name"))
+		respond(w, log, http.StatusOK, out, err)
+	})
+	mux.HandleFunc("POST /backfills", func(w http.ResponseWriter, r *http.Request) {
+		var req store.BackfillRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		out, err := s.CreateBackfill(r.Context(), req)
+		respond(w, log, http.StatusCreated, out, err)
+	})
+	mux.HandleFunc("GET /backfills/{id}", func(w http.ResponseWriter, r *http.Request) {
+		out, err := s.GetBackfill(r.Context(), r.PathValue("id"))
+		respond(w, log, http.StatusOK, out, err)
+	})
+	mux.HandleFunc("POST /backfills/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
+		out, err := s.CancelBackfill(r.Context(), r.PathValue("id"))
+		respond(w, log, http.StatusOK, out, err)
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
@@ -238,6 +280,14 @@ func writeErr(w http.ResponseWriter, log *slog.Logger, err error) {
 		log.Error("request failed", "err", err)
 		writeJSON(w, http.StatusInternalServerError, errBody{Error: "internal"})
 	}
+}
+
+func respond(w http.ResponseWriter, log *slog.Logger, status int, v any, err error) {
+	if err != nil {
+		writeErr(w, log, err)
+		return
+	}
+	writeJSON(w, status, v)
 }
 
 func writeResult(w http.ResponseWriter, log *slog.Logger, res store.AttemptResult, err error) {
