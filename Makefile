@@ -42,7 +42,11 @@ build:
 test:          ## unit + integration tests
 	go test ./...
 
-test-race:     ## tests with the race detector (needs cgo: Linux/CI, or a C compiler on Windows)
+# The race detector needs cgo. On Windows that means gcc on PATH (WinLibs via
+# `winget install BrechtSanders.WinLibs.POSIX.UCRT`); cgo is forced on here
+# because Go silently disables it when it can't find a compiler.
+test-race: export CGO_ENABLED = 1
+test-race:     ## tests with the race detector (needs a C compiler)
 	go test -race ./...
 
 vet:
