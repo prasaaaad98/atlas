@@ -15,7 +15,7 @@ export MSYS_NO_PATHCONV := 1
 MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate:v4.18.3 \
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
-.PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0
+.PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -87,3 +87,10 @@ demo-b0:       ## run a partition twice (same hash, new attempt), rebuild catalo
 	$(ATLAS) run demo_grid_iex_dam --partition 2026-11-24
 	$(ATLAS) catalog
 	$(ATLAS) show demo.grid_iex_dam
+
+fixture-openmeteo: ## OWNER-RUN (network): save real Open-Meteo responses for golden tests
+	$(ATLAS) fetch-fixture openmeteo --location entsoe:DE_LU --date 2026-11-18
+	$(ATLAS) fetch-fixture openmeteo --location entsoe:DE_LU --date 2026-03-29
+	$(ATLAS) fetch-fixture openmeteo --location entsoe:DE_LU --date 2025-10-26
+	$(ATLAS) fetch-fixture openmeteo --location entsoe:ES --date 2026-11-18
+	$(ATLAS) fetch-fixture openmeteo --location entsoe:SE3 --date 2026-11-18

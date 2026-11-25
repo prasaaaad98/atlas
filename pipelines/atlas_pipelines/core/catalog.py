@@ -27,7 +27,7 @@ CATALOG_NAME = "catalog.duckdb"
 
 
 def build_catalog(lake_root: str) -> tuple[Path, dict[str, int]]:
-    """Rebuild <lake>/catalog.duckdb. Returns its path and {asset_key: partitions}."""
+    """Rebuild <lake>/catalog.duckdb. Returns its path and {asset_key: current partitions}."""
     root = resolve_lake_root(lake_root)
     root.mkdir(parents=True, exist_ok=True)
     target = root / CATALOG_NAME
@@ -44,9 +44,14 @@ def build_catalog(lake_root: str) -> tuple[Path, dict[str, int]]:
 
     con = duckdb.connect(str(tmp))
     try:
-        for asset_key in sorted(files):
-            layer, name = asset_key.split(".", 1)  # both validated by check_asset_key
-            paths = sorted(files[asset_key])
+        # Assets named "<table>__<part>" (e.g. silver.weather_hourly__entsoe_de_lu)
+        # are physical slices of one canonical table and share one view.
+        tables: dict[str, list[str]] = defaultdict(list)
+        for asset_key, paths in files.items():
+            tables[asset_key.split("__", 1)[0]].extend(paths)
+        for table in sorted(tables):
+            layer, name = table.split(".", 1)  # validated by check_asset_key
+            paths = sorted(tables[table])
             # Paths are passed as a literal list; quotes in paths are escaped.
             literal = "[" + ", ".join("'" + f.replace("'", "''") + "'" for f in paths) + "]"
             con.execute(f'CREATE SCHEMA IF NOT EXISTS "{layer}"')

@@ -159,3 +159,32 @@ def test_topological_order_respects_deps():
     noop = lambda ctx: ([], [])  # noqa: E731
     p = _pipe(TaskDef("c", noop, deps=("a", "b")), TaskDef("b", noop, deps=("a",)), TaskDef("a", noop))
     assert p.order == ("a", "b", "c")
+
+
+def test_catalog_unions_asset_slices_into_one_table_view(lake):
+    # Two physical assets of one canonical table: demo.t__a and demo.t__b.
+    def writer(asset, dataset):
+        def fn(ctx):
+            import polars as pl
+
+            from atlas_pipelines.core.lake import write_parquet_atomic
+
+            d = attempt_dir(ctx.lake_root, "demo", dataset, "date", ctx.partition_key, ctx.attempt_id)
+            path = d / "part-0.parquet"
+            write_parquet_atomic(pl.DataFrame({"slice": [dataset]}), path)
+            return [Materialization(asset, ctx.partition_key, relative_uri(ctx.lake_root, path), 1,
+                                    sha256_file(path), "1", "t")], []
+        return fn
+
+    p = _pipe(
+        TaskDef("a", writer("demo.t__a", "t__a"), asset_outputs=("demo.t__a",)),
+        TaskDef("b", writer("demo.t__b", "t__b"), asset_outputs=("demo.t__b",)),
+    )
+    assert run_pipeline(p, DAY, lake).status == "SUCCEEDED"
+    path, counts = build_catalog(lake)
+    assert counts == {"demo.t__a": 1, "demo.t__b": 1}
+    con = duckdb.connect(str(path), read_only=True)
+    try:
+        assert sorted(r[0] for r in con.execute("SELECT slice FROM demo.t").fetchall()) == ["t__a", "t__b"]
+    finally:
+        con.close()

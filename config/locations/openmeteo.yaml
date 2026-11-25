@@ -1,0 +1,28 @@
+# Weather points: one per covered zone (PHASE_AB_PLAN.md B4).
+# STATUS: PROPOSED by Claude Code 2026-11-25. Owner to confirm or replace each point.
+# These are placeholders (one major city per zone), not a documented load- or
+# capacity-weighted choice; the rationale goes in docs/data/sources/openmeteo.md.
+# Coordinates are WGS84 decimal degrees. Open-Meteo snaps them to its model grid.
+version: 1
+locations:
+  - id: "entsoe:DE_LU"
+    market: entsoe
+    zone: DE_LU
+    label: Frankfurt am Main
+    latitude: 50.11
+    longitude: 8.68
+    status: proposed
+  - id: "entsoe:ES"
+    market: entsoe
+    zone: ES
+    label: Madrid
+    latitude: 40.42
+    longitude: -3.70
+    status: proposed
+  - id: "entsoe:SE3"
+    market: entsoe
+    zone: SE3
+    label: Stockholm
+    latitude: 59.33
+    longitude: 18.07
+    status: proposed

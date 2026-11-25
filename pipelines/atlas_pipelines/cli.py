@@ -5,6 +5,8 @@
   python -m atlas_pipelines run <pipeline> --partition YYYY-MM-DD
   python -m atlas_pipelines catalog                      rebuild <lake>/catalog.duckdb
   python -m atlas_pipelines show <asset_key>             current partitions + row counts via DuckDB
+  python -m atlas_pipelines fetch-fixture openmeteo --location entsoe:DE_LU --date YYYY-MM-DD
+                                                         owner-run: save one real response as a test fixture
 
 Locations come from LAKE_ROOT and ATLAS_MARKETS_DIR (core/config.py), or
 --lake-root. Exit code is non-zero when a run does not succeed.
@@ -39,6 +41,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("catalog")
     s = sub.add_parser("show")
     s.add_argument("asset_key")
+    f = sub.add_parser("fetch-fixture")
+    f.add_argument("source", choices=["openmeteo"])
+    f.add_argument("--location", required=True)
+    f.add_argument("--date", required=True)
+    f.add_argument("--out", default=str(config.REPO_ROOT / "pipelines" / "tests" / "fixtures"))
     args = ap.parse_args(argv)
 
     lake = args.lake_root or config.lake_root()
@@ -50,6 +57,9 @@ def main(argv: list[str] | None = None) -> int:
                 rules = ", ".join(f"{r.minutes} min from {r.effective_from}" for r in p.intervals)
                 print(f"{m.id:<12} {code:<5} {p.canonical_market:<14} {m.timezone:<18} {m.currency}  {rules or 'intervals not confirmed'}")
         return 0
+
+    if args.cmd == "fetch-fixture":
+        return fetch_fixture(args, registry)
 
     pipelines = build_pipelines(registry)
     if args.cmd == "list":
@@ -109,3 +119,48 @@ def main(argv: list[str] | None = None) -> int:
             print("  " + " | ".join(str(v) for v in row))
         return 0
     return 2
+
+
+def fetch_fixture(args, registry) -> int:
+    """One real request through the source's limit key; body saved unchanged.
+
+    Run by the owner (network). Never overwrites an existing fixture.
+    """
+    from datetime import date, datetime, timezone
+    from pathlib import Path
+
+    from atlas_pipelines.core.hashing import sha256_bytes
+    from atlas_pipelines.core.http import RateLimiter, http_get
+    from atlas_pipelines.core.limits import load_limit
+    from atlas_pipelines.core.markets import iso_utc, parse_partition_date
+    from atlas_pipelines.sources.openmeteo import archive
+
+    locations = {l.id: l for l in archive.load_locations(config.REPO_ROOT / "config" / "locations" / "openmeteo.yaml", registry)}
+    if args.location not in locations:
+        print(f"unknown location {args.location!r}; known: {sorted(locations)}")
+        return 2
+    loc = locations[args.location]
+    day: date = parse_partition_date(args.date)
+    out_dir = Path(args.out) / "openmeteo"
+    stem = f"{loc.market}_{loc.zone.lower()}_{day.isoformat()}"
+    body_path, meta_path = out_dir / f"{stem}.json", out_dir / f"{stem}.meta.json"
+    if body_path.exists() or meta_path.exists():
+        print(f"refusing to overwrite {body_path}")
+        return 1
+    limiter = RateLimiter(load_limit("openmeteo", config.REPO_ROOT / "config" / "limits").rpm)
+    res = http_get(archive.BASE_URL, archive.request_params(loc, registry[loc.market], day), limiter=limiter)
+    print(f"{res.url_redacted} -> {res.status} {res.outcome} {res.error_class or ''}")
+    if res.outcome == "unknown":
+        print(f"not saved: {res.detail}")
+        return 1
+    out_dir.mkdir(parents=True, exist_ok=True)
+    body_path.write_bytes(res.body)
+    meta = {
+        "source": "openmeteo", "location_id": loc.id, "date": day.isoformat(),
+        "url": res.url_redacted, "http_status": res.status, "outcome": res.outcome,
+        "fetched_at": iso_utc(datetime.now(timezone.utc)), "sha256": sha256_bytes(res.body),
+        "bytes": len(res.body), "expected_failed_checks": [],
+    }
+    meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"saved {body_path} ({len(res.body)} bytes)")
+    return 0 if res.outcome == "succeeded" else 1

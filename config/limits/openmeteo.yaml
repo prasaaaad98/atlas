@@ -1,0 +1,9 @@
+# Politeness limit for the Open-Meteo free API (non-commercial engine testing only;
+# see docs/data/sources/openmeteo.md).
+# Published free-tier limits (terms page, read 2026-11-25): "Less than 10'000 API calls
+# per day, 5'000 per hour and 600 per minute", per IP address. Requests with more than
+# 10 variables or more than 2 weeks for one location count as several calls.
+# We stay far below: one request per location-day, 30/min, one at a time.
+key: openmeteo
+rpm: 30
+max_concurrency: 1
