@@ -1,0 +1,35 @@
+{
+  "files": 5100,
+  "rows": 489600,
+  "data_prep_seconds": 9.8,
+  "duckdb": "2.0.1",
+  "repeats": 3,
+  "A_views_over_pointers": {
+    "build_seconds": 4.5902,
+    "count_all_seconds": 1.9485,
+    "avg_by_zone_seconds": 1.5961,
+    "one_partition_seconds": 1.7869,
+    "replace_one_partition_seconds": 4.0566,
+    "time_travel": "no (only the current pointers; history is in Atlas's materializations table)"
+  },
+  "B_ducklake_duckdb_catalog": {
+    "register_seconds": 85.5609,
+    "count_all_seconds": 0.0028,
+    "avg_by_zone_seconds": 0.627,
+    "one_partition_seconds": 0.0214,
+    "replace_one_partition_seconds": 0.0626,
+    "snapshots": 6,
+    "time_travel": true,
+    "rows_now": 489600
+  },
+  "C_ducklake_postgres_catalog": {
+    "register_seconds": 85.2746,
+    "count_all_seconds": 0.0065,
+    "avg_by_zone_seconds": 0.6157,
+    "one_partition_seconds": 1.9386,
+    "replace_one_partition_seconds": 4.3257,
+    "snapshots": 6,
+    "time_travel": true,
+    "rows_now": 489600
+  }
+}
