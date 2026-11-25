@@ -56,6 +56,23 @@ eia:
   # not publish when a BA issued its day-ahead forecast. Placeholder, to be set
   # with a cited basis in E2; until then backtests use fetched_at_utc only.
   forecast_availability: {rule: null, status: assumed}
+  # EIA-930 timestamps are HOUR-ENDING: `period` T06 covers 05:00-06:00 UTC.
+  # Sources: EIA, "About the EIA-930 data" (https://www.eia.gov/electricity/930-content/about.html):
+  # "Hourly data are published using the hour ending time reporting convention"; Form EIA-930
+  # instructions (2026-07-31 edition): "hour ending 1:00 AM Eastern Standard Time (with UTC Offset = 5)
+  # should be reported as 2017-03-01T06:00:00.000Z".
+  period_marks: {value: interval_end, status: sourced}
+  # Net interchange sign (region-data type TI): positive = net exports. Measured on the saved
+  # samples: demand = net generation - TI (ERCO exact; PJM within 3%; CISO median 2.5%, max 25%).
+  # status sourced once EIA's definition is quoted in docs/data/sources/eia.md.
+  interchange_sign: {positive_means: net_exports, status: assumed}
+  # Our policy (not a source fact): EIA-930 values arrive with a lag and are revised. A UTC
+  # day that ended less than this long ago and is incomplete is "not published yet"
+  # (retryable); after it, missing hours are a blocking failure. Revisit with measurements.
+  publication: {late_after_hours_from_day_end: 48}
+  # Balance identity demand ≈ net generation − net interchange (warn only): tolerance as
+  # a share of demand. Our choice; EIA-930 is self-reported and sometimes inconsistent.
+  balance_tolerance: 0.05
 
 # ---------------------------------------------------------------------------
 # Calendar (B4e, sources/calendar/build.py). Local dates in each BA's zone (the

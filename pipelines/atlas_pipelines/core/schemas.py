@@ -89,6 +89,42 @@ CALENDAR: dict[str, tuple[pl.DataType, bool]] = {
 }
 
 
+# silver.demand (PHASE_AB_PLAN.md §3.3, EIA plan §4). Actuals and forecast vintages.
+# Additions to the plan: local_date/local_hour (derived from the zone's local time
+# zone), fetched_at_utc + availability_assumption (EIA doesn't publish forecast issue
+# times: issued_at_utc stays null, ADR-B06 addendum), source_uri lineage (ADR-B02).
+DEMAND: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, False),
+    "interval_start_utc": (UTC, False),
+    "interval_end_utc": (UTC, False),
+    "interval_minutes": (pl.Int16, False),
+    "local_date": (pl.Date, False),
+    "local_hour": (pl.Int8, False),
+    "demand_mw": (pl.Float64, True),          # average MW over the interval; null = source gap
+    "kind": (pl.String, False),               # actual | forecast
+    "issued_at_utc": (UTC, True),             # null when the source publishes no issue time (EIA-930)
+    "horizon_minutes": (pl.Int32, True),      # interval_start − issued_at; null when issued_at is null
+    "fetched_at_utc": (UTC, False),           # when we fetched it: the earliest a forecast is known to us
+    "availability_assumption": (pl.String, True),  # registry rule for history, status assumed (EIA plan §4)
+    "source_uri": (pl.String, False),
+}
+
+# silver.interchange (EIA plan §4): net interchange per zone and interval.
+INTERCHANGE: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, False),
+    "interval_start_utc": (UTC, False),
+    "interval_end_utc": (UTC, False),
+    "interval_minutes": (pl.Int16, False),
+    "local_date": (pl.Date, False),
+    "local_hour": (pl.Int8, False),
+    "net_interchange_mw": (pl.Float64, True),  # positive = net exports (registry: interchange_sign)
+    "fetched_at_utc": (UTC, False),
+    "source_uri": (pl.String, False),
+}
+
+
 def empty_frame(schema: dict) -> pl.DataFrame:
     return pl.DataFrame(schema={c: t for c, (t, _) in schema.items()})
 
