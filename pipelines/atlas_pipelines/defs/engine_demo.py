@@ -14,6 +14,7 @@ Who calls it: defs/__init__.py; scripts/demo-a*.sh run them through workers.
                    classifier says terminal, so there is exactly one attempt (A4).
   engine_diamond   fetch → (parse_a, parse_b) → publish, 0.3 s each (A5 readiness).
   engine_limited   one task on limit key `demo_one` (concurrency 1), 0.5 s (A5 admission).
+  engine_quick     one 50 ms task (A6 schedules and backfills).
 Timing knob: ATLAS_DEMO_CHUNK_SECONDS (default 1.0) per chunk.
 """
 
@@ -79,6 +80,8 @@ def engine_demo_pipelines() -> list[Pipeline]:
             TaskDef("parse_b", sleeper(0.3), deps=("fetch",), max_attempts=5, retry=DEMO_RETRY),
             TaskDef("publish", sleeper(0.3), deps=("parse_a", "parse_b"), max_attempts=5, retry=DEMO_RETRY),
         ), description="Engine demo (A5): diamond DAG"),
+        Pipeline("engine_quick", "Europe/Brussels", (TaskDef("work", sleeper(0.05), max_attempts=3),),
+                 description="Engine demo (A6): quick task for schedules and backfills"),
         Pipeline("engine_limited", "UTC", (TaskDef("fetch", sleeper(0.5), limit_key="demo_one"),),
                  description="Engine demo (A5): limit key demo_one, concurrency 1"),
     ]

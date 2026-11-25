@@ -14,6 +14,8 @@ With Atlas (control plane URL from --atlas or ATLAS_URL, default http://127.0.0.
   python -m atlas_pipelines register <pipeline>           register the pipeline definition (POST /pipelines)
   python -m atlas_pipelines submit <pipeline> --partition YYYY-MM-DD [--to ..] [--priority live|backfill|adhoc]
   python -m atlas_pipelines limits sync                   PUT every config/limits/*.yaml as an Atlas limit key
+  python -m atlas_pipelines schedule <pipeline> --cron "0 14 * * *" --tz Europe/Brussels [--offset-days 1] [--catchup --start D] [--disable]
+  python -m atlas_pipelines backfill <pipeline> --from D --to D [--max-concurrent 4]   then: backfill-status <id>
   python -m atlas_pipelines cancel <run_id>               cancel a run (running workers stop at their next heartbeat)
   python -m atlas_pipelines worker [--max-tasks N] [--exit-when-idle]
                                                          claim and run tasks (same task code as `run`)
@@ -63,6 +65,21 @@ def main(argv: list[str] | None = None) -> int:
     sm.add_argument("--priority", default="adhoc", choices=["live", "backfill", "adhoc"])
     lm = sub.add_parser("limits")
     lm.add_argument("action", choices=["sync"])
+    sc = sub.add_parser("schedule")
+    sc.add_argument("pipeline")
+    sc.add_argument("--cron", required=True)
+    sc.add_argument("--tz", required=True)
+    sc.add_argument("--offset-days", type=int, default=0)
+    sc.add_argument("--catchup", action="store_true")
+    sc.add_argument("--start")
+    sc.add_argument("--disable", action="store_true")
+    bf = sub.add_parser("backfill")
+    bf.add_argument("pipeline")
+    bf.add_argument("--from", dest="from_", required=True)
+    bf.add_argument("--to", required=True)
+    bf.add_argument("--max-concurrent", type=int, default=4)
+    bs = sub.add_parser("backfill-status")
+    bs.add_argument("backfill_id")
     cn = sub.add_parser("cancel")
     cn.add_argument("run_id")
     wk = sub.add_parser("worker")
@@ -125,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
             day += timedelta(days=1)
         return code
 
-    if args.cmd in ("register", "submit", "worker", "limits", "cancel"):
+    if args.cmd in ("register", "submit", "worker", "limits", "cancel", "schedule", "backfill", "backfill-status"):
         return atlas_command(args, pipelines, lake)
 
     if args.cmd == "catalog":
@@ -190,6 +207,24 @@ def atlas_command(args, pipelines, lake: str) -> int:
                 print(f"limit key {lim.key}: HTTP {status} {out}")
                 code |= 0 if status == 200 else 1
             return code
+        if args.cmd == "schedule":
+            body = {"cron": args.cron, "tz": args.tz, "partition_offset_days": args.offset_days,
+                    "catchup": args.catchup, "enabled": not args.disable}
+            if args.start:
+                body["start_partition"] = args.start
+            status, out = client.call("PUT", f"/pipelines/{args.pipeline}/schedule", body)
+            print(f"schedule {args.pipeline}: HTTP {status} {out}")
+            return 0 if status == 200 else 1
+        if args.cmd == "backfill":
+            status, out = client.call("POST", "/backfills", {"pipeline": args.pipeline, "from_partition": args.from_,
+                                                            "to_partition": args.to, "max_concurrent_runs": args.max_concurrent})
+            detail = "" if status == 201 else out
+            print(f"backfill {args.pipeline}: HTTP {status} id={(out or {}).get('id')} {detail}")
+            return 0 if status == 201 else 1
+        if args.cmd == "backfill-status":
+            status, out = client.call("GET", f"/backfills/{args.backfill_id}")
+            print(json.dumps(out, indent=2))
+            return 0 if status == 200 else 1
         if args.cmd == "cancel":
             status, out = client.call("POST", f"/runs/{args.run_id}/cancel")
             print(f"cancel {args.run_id}: HTTP {status} status={(out or {}).get('status')}")
