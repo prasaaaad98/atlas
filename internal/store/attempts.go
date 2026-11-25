@@ -10,9 +10,12 @@
 //     row with FOR UPDATE SKIP LOCKED, and task_attempts_one_live backs it up.
 //   - Every attempt is recorded, never overwritten: one task_attempts row per
 //     claim; later steps only fill in its own finish fields.
-//   - Fencing: start/complete/fail must present the attempt id AND fencing
-//     token that currently hold the task; anything else is ErrStaleAttempt.
-//     (Leases and the reaper that expire stale attempts arrive in A3.)
+//   - Fencing: start/heartbeat/complete/fail must present the attempt id AND
+//     fencing token that currently hold the task, while its lease is live on
+//     the database clock; anything else is ErrStaleAttempt (heartbeat answers
+//     cancel_requested instead). A lease that lapsed is dead even before the
+//     reaper (reaper.go) has re-queued the task, so there is no window in
+//     which an expired attempt can still win.
 //   - Terminal states are final: domain.Next refuses any event on them.
 //   - Run status is derived, never set: syncRunStatus recomputes it from all
 //     task states in the same transaction.
@@ -39,7 +42,7 @@ import (
 var ErrStaleAttempt = errors.New("stale attempt: fencing token or attempt does not hold the task")
 
 const (
-	defaultLeaseSeconds = 300
+	defaultLeaseSeconds = 30 // ADR-004; workers heartbeat every lease/3
 	minLeaseSeconds     = 10
 	maxLeaseSeconds     = 3600
 )
@@ -69,7 +72,7 @@ type Claim struct {
 	DataIntervalEnd   time.Time       `json:"data_interval_end"`
 	PriorityClass     string          `json:"priority_class"`
 	AssetOutputs      []string        `json:"asset_outputs"`
-	Checkpoint        json.RawMessage `json:"checkpoint"` // heartbeat details arrive in A3; null until then
+	Checkpoint        json.RawMessage `json:"checkpoint"` // last heartbeat checkpoint of a previous attempt, or null
 }
 
 // Claim leases the next READY task in claim order, or returns ok=false when
@@ -98,6 +101,7 @@ func (s *Store) Claim(ctx context.Context, req ClaimRequest) (Claim, bool, error
 	var c Claim
 	var attemptCount int
 	var token int64
+	var checkpoint []byte
 	// No double claims: FOR NO KEY UPDATE locks the chosen row until COMMIT
 	// (it conflicts with itself, so no second claimer can hold it), and SKIP
 	// LOCKED makes a concurrent claimer take the next unlocked row instead of
@@ -109,13 +113,13 @@ func (s *Store) Claim(ctx context.Context, req ClaimRequest) (Claim, bool, error
 	// live before ad-hoc before backfill, then earliest deadline, then FIFO.
 	// available_at <= now() uses the database clock, the only clock Atlas trusts.
 	err = tx.QueryRow(ctx, `
-		SELECT id, run_id, name, attempt_count, fencing_token, priority_class, asset_outputs
+		SELECT id, run_id, name, attempt_count, fencing_token, priority_class, asset_outputs, checkpoint
 		FROM tasks
 		WHERE status = 'READY' AND available_at <= now()
 		ORDER BY priority_rank, deadline_at NULLS LAST, available_at, id
 		LIMIT 1
 		FOR NO KEY UPDATE SKIP LOCKED`,
-	).Scan(&c.TaskID, &c.RunID, &c.TaskName, &attemptCount, &token, &c.PriorityClass, &c.AssetOutputs)
+	).Scan(&c.TaskID, &c.RunID, &c.TaskName, &attemptCount, &token, &c.PriorityClass, &c.AssetOutputs, &checkpoint)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Claim{}, false, nil
 	}
@@ -155,6 +159,9 @@ func (s *Store) Claim(ctx context.Context, req ClaimRequest) (Claim, bool, error
 		return Claim{}, false, err
 	}
 	c.Checkpoint = json.RawMessage("null")
+	if checkpoint != nil {
+		c.Checkpoint = checkpoint
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Claim{}, false, err
 	}
@@ -208,6 +215,7 @@ type heldTask struct {
 	maxAttempts    int
 	attemptStatus  string
 	attemptToken   int64
+	leaseLive      bool // lease_expires_at > now() on the database clock
 }
 
 // lockByAttempt locks the task row an attempt belongs to (lock order: task first).
@@ -219,12 +227,13 @@ func lockByAttempt(ctx context.Context, tx pgx.Tx, attemptID string) (heldTask, 
 	var st string
 	err := tx.QueryRow(ctx, `
 		SELECT t.id, t.run_id, t.status, t.current_attempt_id, t.fencing_token, t.max_attempts,
-		       a.attempt_number, a.status, a.fencing_token
+		       a.attempt_number, a.status, a.fencing_token,
+		       coalesce(t.lease_expires_at > now(), false)
 		FROM task_attempts a JOIN tasks t ON t.id = a.task_id
 		WHERE a.id = $1
 		FOR NO KEY UPDATE OF t`, attemptID,
 	).Scan(&h.taskID, &h.runID, &st, &h.currentAttempt, &h.token, &h.maxAttempts,
-		&h.attemptNumber, &h.attemptStatus, &h.attemptToken)
+		&h.attemptNumber, &h.attemptStatus, &h.attemptToken, &h.leaseLive)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return heldTask{}, fmt.Errorf("attempt %s: %w", attemptID, ErrNotFound)
 	}
@@ -232,11 +241,73 @@ func lockByAttempt(ctx context.Context, tx pgx.Tx, attemptID string) (heldTask, 
 	return h, err
 }
 
-// holds reports whether (attemptID, token) is the task's current lease holder.
-// This is the fencing check: the token was incremented by the claim that
-// created the current attempt, so any older attempt's token is smaller.
+// holds reports whether (attemptID, token) is the task's current, live lease
+// holder. This is the fencing check: the token was incremented by the claim
+// that created the current attempt, so any older attempt's token is smaller;
+// and an attempt whose lease lapsed on the database clock no longer holds the
+// task even if the reaper hasn't run yet.
 func (h heldTask) holds(attemptID string, token int64) bool {
-	return h.currentAttempt != nil && *h.currentAttempt == attemptID && h.token == token
+	return h.currentAttempt != nil && *h.currentAttempt == attemptID && h.token == token && h.leaseLive
+}
+
+type HeartbeatRequest struct {
+	FencingToken int64           `json:"fencing_token"`
+	Checkpoint   json.RawMessage `json:"checkpoint,omitempty"` // omitted or null: keep the stored one
+	LeaseSeconds int             `json:"lease_seconds,omitempty"`
+}
+
+type HeartbeatResult struct {
+	CancelRequested bool       `json:"cancel_requested"`
+	LeaseExpiresAt  *time.Time `json:"lease_expires_at,omitempty"`
+}
+
+// Heartbeat extends a live lease and optionally stores a checkpoint. An
+// attempt that no longer holds the task (replaced, reaped, canceled, lapsed)
+// gets cancel_requested=true and changes nothing, so a stale worker can never
+// overwrite a newer attempt's checkpoint or revive its own lease.
+func (s *Store) Heartbeat(ctx context.Context, attemptID string, req HeartbeatRequest) (HeartbeatResult, error) {
+	if req.LeaseSeconds == 0 {
+		req.LeaseSeconds = defaultLeaseSeconds
+	}
+	if req.LeaseSeconds < minLeaseSeconds || req.LeaseSeconds > maxLeaseSeconds {
+		return HeartbeatResult{}, fmt.Errorf("%w: lease_seconds must be %d..%d", ErrInvalid, minLeaseSeconds, maxLeaseSeconds)
+	}
+	cp := req.Checkpoint
+	if len(cp) > 0 && string(cp) != "null" {
+		var obj map[string]any
+		if len(cp) > 8192 || json.Unmarshal(cp, &obj) != nil {
+			return HeartbeatResult{}, fmt.Errorf("%w: checkpoint must be a JSON object of at most 8 KB", ErrInvalid)
+		}
+	} else {
+		cp = nil
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return HeartbeatResult{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+	h, err := lockByAttempt(ctx, tx, attemptID)
+	if err != nil {
+		return HeartbeatResult{}, err
+	}
+	if !h.holds(attemptID, req.FencingToken) || (h.status != domain.Leased && h.status != domain.Running) {
+		return HeartbeatResult{CancelRequested: true}, nil
+	}
+	var until time.Time
+	// Fenced write: the task row is locked and holds() was checked under that lock.
+	if err := tx.QueryRow(ctx, `
+		UPDATE tasks SET lease_expires_at = now() + make_interval(secs => $2),
+		       checkpoint = coalesce($3::jsonb, checkpoint), updated_at = now()
+		WHERE id = $1 RETURNING lease_expires_at`, h.taskID, req.LeaseSeconds, cp).Scan(&until); err != nil {
+		return HeartbeatResult{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE task_attempts SET lease_expires_at = $2 WHERE id = $1`, attemptID, until); err != nil {
+		return HeartbeatResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return HeartbeatResult{}, err
+	}
+	return HeartbeatResult{LeaseExpiresAt: &until}, nil
 }
 
 func (s *Store) Start(ctx context.Context, attemptID string, req StartRequest) (AttemptResult, error) {

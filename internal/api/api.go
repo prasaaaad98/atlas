@@ -22,6 +22,7 @@
 //	POST /attempts/{id}/start      LEASED -> RUNNING            200, 409 stale/illegal, 404
 //	POST /attempts/{id}/complete   RUNNING -> SUCCEEDED (or FAILED_TERMINAL on a failed blocking check)
 //	POST /attempts/{id}/fail       RUNNING/LEASED -> READY (retry) or FAILED_TERMINAL
+//	POST /attempts/{id}/heartbeat  extend the lease, store a checkpoint; 200 {cancel_requested}
 //
 // A repeated report with the same fencing token (lost response) returns 200
 // with "replay": true; a report from an attempt that no longer holds the task
@@ -51,6 +52,7 @@ type Store interface {
 	Start(ctx context.Context, attemptID string, req store.StartRequest) (store.AttemptResult, error)
 	Complete(ctx context.Context, attemptID string, req store.CompleteRequest) (store.AttemptResult, error)
 	Fail(ctx context.Context, attemptID string, req store.FailRequest) (store.AttemptResult, error)
+	Heartbeat(ctx context.Context, attemptID string, req store.HeartbeatRequest) (store.HeartbeatResult, error)
 }
 
 func Handler(s Store, log *slog.Logger) http.Handler {
@@ -123,6 +125,19 @@ func Handler(s Store, log *slog.Logger) http.Handler {
 			res, err := s.Fail(r.Context(), r.PathValue("id"), req)
 			writeResult(w, log, res, err)
 		}
+	})
+	mux.HandleFunc("POST /attempts/{id}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
+		var req store.HeartbeatRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		// A stale attempt is not an error here: it gets cancel_requested=true and stops.
+		res, err := s.Heartbeat(r.Context(), r.PathValue("id"), req)
+		if err != nil {
+			writeErr(w, log, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
