@@ -1,0 +1,7 @@
+# Politeness limit for the ENTSO-E Transparency Platform API.
+# Published limit: 400 requests/min per token (helpdesk article "API Rate Limit"),
+# with a temporary ban on breach. We stay far below it (owner decision 2026-11-25).
+# Enforced per process by the fetcher on the local runner; by Atlas at claim from A5.
+key: entsoe
+rpm: 60
+max_concurrency: 2

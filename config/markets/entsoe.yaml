@@ -1,0 +1,29 @@
+# Market registry entry: ENTSO-E Transparency Platform (European day-ahead, SDAC).
+# Loaded by pipelines/atlas_pipelines/core/markets.py. Terms: docs/data/sources/entsoe.md.
+#
+# Delivery days are CET/CEST days. All starting zones (DE_LU, ES, SE3) use CET/CEST.
+# A zone in another time zone would need its own market entry.
+registry_version: 1
+id: entsoe
+name: ENTSO-E Transparency Platform (SDAC day-ahead)
+timezone: Europe/Brussels
+currency: EUR
+zones: [DE_LU, ES, SE3]
+# EIC codes per zone, used in API requests. TODO: fill from the saved fixtures'
+# in_Domain.mRID values (real source documents), not from memory.
+zone_eic:
+  DE_LU: null
+  ES: null
+  SE3: null
+products:
+  DAM:
+    canonical_market: ENTSOE_DAM
+    intervals:
+      - {effective_from: 2022-04-01, minutes: 60}   # start of the history we cover
+      - {effective_from: 2025-10-01, minutes: 15, source: "SDAC press release, 1 Oct 2025 (owner)"}
+    # SDAC harmonised min/max clearing prices not yet recorded with a source.
+    # Prices can be negative; range checks are warn-only while these are null.
+    price_floor: null
+    price_cap: null
+    gate_closure_local: null   # TODO(B1): from SDAC rules, with citation
+    publication_local: null    # TODO(B1): from measured publication times

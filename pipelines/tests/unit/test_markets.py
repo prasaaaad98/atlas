@@ -199,3 +199,19 @@ def test_real_iex_limits_have_provenance():
     assert iex.product("DAM").price_cap_status == "sourced"
     assert iex.product("DAM").price_floor_status == "assumed"
     assert iex.product("HPDAM").price_cap == 20000
+
+
+@pytest.mark.parametrize(
+    "day,expected",
+    [
+        ("2025-03-30", 23),  # spring DST, hourly era
+        ("2025-09-30", 24),  # last hourly delivery day
+        ("2025-10-01", 96),  # first 15-min delivery day (SDAC go-live)
+        ("2025-10-26", 100),  # fall DST, 15-min era
+        ("2026-03-29", 92),  # spring DST, 15-min era
+        ("2026-11-18", 96),
+    ],
+)
+def test_entsoe_registry_intervals(day, expected):
+    m = load_registry(REPO / "config" / "markets")["entsoe"]
+    assert len(m.intervals("DAM", parse_partition_date(day))) == expected
