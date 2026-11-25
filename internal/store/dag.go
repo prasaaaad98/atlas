@@ -70,6 +70,9 @@ func readyChildren(ctx context.Context, tx pgx.Tx, runID, taskID string) error {
 		if err := taskEvent(ctx, tx, runID, kid, "task.ready", map[string]any{"after": taskID}); err != nil {
 			return err
 		}
+		if err := notifyReady(ctx, tx); err != nil {
+			return err
+		}
 	}
 	return nil
 }

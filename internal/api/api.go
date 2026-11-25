@@ -83,10 +83,17 @@ type Store interface {
 	CancelBackfill(ctx context.Context, id string) (store.Backfill, error)
 	ListAssets(ctx context.Context) ([]store.Asset, error)
 	AssetPartitions(ctx context.Context, key string, limit int) ([]store.AssetPartition, error)
+	Metrics(ctx context.Context) (store.MetricsSnapshot, error)
+	Timeline(ctx context.Context, runID string) ([]store.TimelineEvent, []store.TimelineAttempt, error)
+	ReadySignal() <-chan struct{}
 }
 
 func Handler(s Store, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
+	obs := newObserver()
+	mux.HandleFunc("GET /metrics", obs.metricsHandler(s, log))
+	mux.HandleFunc("GET /ui/runs/{id}", uiRun(s, log))
+	mux.HandleFunc("GET /ui/assets", uiAssets(s, log))
 	mux.HandleFunc("POST /pipelines", func(w http.ResponseWriter, r *http.Request) {
 		var def store.PipelineDef
 		if !decode(w, r, &def) {
@@ -124,7 +131,7 @@ func Handler(s Store, log *slog.Logger) http.Handler {
 		if !decode(w, r, &req) {
 			return
 		}
-		c, ok, err := s.Claim(r.Context(), req)
+		c, ok, err := obs.claim(r.Context(), s, req, claimWait(r))
 		if err != nil {
 			writeErr(w, log, err)
 			return

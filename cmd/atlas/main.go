@@ -90,6 +90,9 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("ATLAS_FRESHNESS_INTERVAL: %q is not a positive duration", os.Getenv("ATLAS_FRESHNESS_INTERVAL"))
 	}
 	go freshness(ctx, st, frEvery, log)
+	// LISTEN/NOTIFY wake-ups for long-poll claims (POST /claim?wait=N); claims
+	// still work, re-checking every second, while this reconnects.
+	go st.Listen(ctx, func(err error) { log.Warn("listen for ready tasks", "err", err) })
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()

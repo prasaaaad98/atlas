@@ -109,6 +109,11 @@ func (s *Store) reapOnceTx(ctx context.Context) (bool, error) {
 	if err := afterTaskEnded(ctx, tx, runID, taskID, next); err != nil {
 		return false, err
 	}
+	if next == domain.Ready {
+		if err := notifyReady(ctx, tx); err != nil {
+			return false, err
+		}
+	}
 	if _, err := syncRunStatus(ctx, tx, runID); err != nil {
 		return false, err
 	}

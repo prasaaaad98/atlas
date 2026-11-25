@@ -479,6 +479,9 @@ func (s *Store) Fail(ctx context.Context, attemptID string, req FailRequest) (At
 		if err == nil {
 			err = afterTaskEnded(ctx, tx, h.runID, h.taskID, next)
 		}
+		if err == nil && next == domain.Ready {
+			err = notifyReady(ctx, tx) // waiters re-check; a backoff delay keeps it unclaimable until due
+		}
 		return next, err
 	})
 }

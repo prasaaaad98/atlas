@@ -55,6 +55,8 @@ type Store struct {
 	// jitter returns a uniform value in [0, 1) for full-jitter backoff
 	// (domain.RetryPolicy.Backoff). Tests may replace it.
 	jitter func() float64
+	// ready wakes long-poll claims on "task ready" notifications (observe.go).
+	ready readySignal
 }
 
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
@@ -428,6 +430,11 @@ func (s *Store) submitTx(ctx context.Context, req SubmitRequest, hash string) (R
 				run.ID, ids[d], ids[t.Name]); err != nil {
 				return Run{}, false, err
 			}
+		}
+	}
+	if slices.Contains(states, domain.Ready) {
+		if err := notifyReady(ctx, tx); err != nil { // delivered at COMMIT
+			return Run{}, false, err
 		}
 	}
 	if derived, err := domain.DeriveRunStatus(states); err != nil || derived != run.Status {
