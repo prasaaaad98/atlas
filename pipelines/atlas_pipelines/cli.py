@@ -2,11 +2,16 @@
 
   python -m atlas_pipelines markets                      list registry markets and products
   python -m atlas_pipelines list                         list pipelines
-  python -m atlas_pipelines run <pipeline> --partition YYYY-MM-DD
+  python -m atlas_pipelines run <pipeline> --partition YYYY-MM-DD [--to YYYY-MM-DD]
   python -m atlas_pipelines catalog                      rebuild <lake>/catalog.duckdb
   python -m atlas_pipelines show <asset_key>             current partitions + row counts via DuckDB
   python -m atlas_pipelines fetch-fixture openmeteo --location entsoe:DE_LU --date YYYY-MM-DD
                                                          owner-run: save one real response as a test fixture
+  python -m atlas_pipelines fetch-fixture entsoe --zone ES --date YYYY-MM-DD --label normal_A01
+                                                         owner-run: same for ENTSO-E (needs ENTSOE_TOKEN)
+
+Secrets: ENTSOE_TOKEN is read from the environment, or from the repo's .env
+(KEY=VALUE lines) when unset. It is never printed; URLs are shown redacted.
 
 Locations come from LAKE_ROOT and ATLAS_MARKETS_DIR (core/config.py), or
 --lake-root. Exit code is non-zero when a run does not succeed.
@@ -38,15 +43,19 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("run")
     r.add_argument("pipeline")
     r.add_argument("--partition", required=True)
+    r.add_argument("--to", help="last partition (inclusive): run each day from --partition to --to")
     sub.add_parser("catalog")
     s = sub.add_parser("show")
     s.add_argument("asset_key")
     f = sub.add_parser("fetch-fixture")
-    f.add_argument("source", choices=["openmeteo"])
-    f.add_argument("--location", required=True)
+    f.add_argument("source", choices=["openmeteo", "entsoe"])
+    f.add_argument("--location", help="openmeteo: <market>:<zone>")
+    f.add_argument("--zone", help="entsoe: zone code, e.g. ES")
+    f.add_argument("--label", help="entsoe: file label, e.g. normal_A01")
     f.add_argument("--date", required=True)
     f.add_argument("--out", default=str(config.REPO_ROOT / "pipelines" / "tests" / "fixtures"))
     args = ap.parse_args(argv)
+    _load_dotenv(config.REPO_ROOT / ".env", ("ENTSOE_TOKEN", "EIA_API_KEY"))
 
     lake = args.lake_root or config.lake_root()
     registry = load_registry(config.markets_dir())
@@ -59,6 +68,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "fetch-fixture":
+        if args.source == "entsoe":
+            return fetch_fixture_entsoe(args, registry)
+        if not args.location:
+            print("--location is required for openmeteo")
+            return 2
         return fetch_fixture(args, registry)
 
     pipelines = build_pipelines(registry)
@@ -71,17 +85,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.pipeline not in pipelines:
             print(f"unknown pipeline {args.pipeline!r}; try `list`")
             return 2
-        result = run_pipeline(pipelines[args.pipeline], args.partition, lake)
-        print(f"run {result.run_id}: {result.status}")
-        for t in result.tasks:
-            print(f"  {t.task:<16} {t.status:<16} {t.error_class or ''}")
-            for m in t.materializations:
-                print(f"    {m['asset_key']}  rows={m['row_count']}  {m['content_hash'][:23]}...")
-                print(f"      {m['uri']}")
-            for c in t.checks:
-                print(f"    check {c['check_name']:<24} {c['severity']:<8} {'PASS' if c['passed'] else 'FAIL'}")
-        print(f"manifest: {result.manifest_path}")
-        return 0 if result.status == "SUCCEEDED" else 1
+        from datetime import timedelta
+
+        from atlas_pipelines.core.markets import parse_partition_date
+
+        first = parse_partition_date(args.partition)
+        last = parse_partition_date(args.to) if args.to else first
+        if last < first or (last - first).days > 366:
+            print("--to must be on or after --partition, within 366 days")
+            return 2
+        code, day = 0, first
+        while day <= last:
+            code |= _run_one(pipelines[args.pipeline], day.isoformat(), lake)
+            day += timedelta(days=1)
+        return code
 
     if args.cmd == "catalog":
         path, counts = build_catalog(lake)
@@ -119,6 +136,87 @@ def main(argv: list[str] | None = None) -> int:
             print("  " + " | ".join(str(v) for v in row))
         return 0
     return 2
+
+
+def _run_one(pipeline, partition: str, lake: str) -> int:
+    result = run_pipeline(pipeline, partition, lake)
+    print(f"run {result.run_id} {partition}: {result.status}")
+    for t in result.tasks:
+        retry = f" retryable (after {t.retry_after_s}s)" if t.retryable else ""
+        print(f"  {t.task:<16} {t.status:<16} {t.error_class or ''}{retry}")
+        for m in t.materializations:
+            print(f"    {m['asset_key']}  rows={m['row_count']}  {m['content_hash'][:23]}...")
+            print(f"      {m['uri']}")
+        for c in t.checks:
+            print(f"    check {c['check_name']:<30} {c['severity']:<8} {'PASS' if c['passed'] else 'FAIL'}")
+    print(f"manifest: {result.manifest_path}")
+    return 0 if result.status == "SUCCEEDED" else 1
+
+
+def _load_dotenv(path, names) -> None:
+    """Set the named variables from a KEY=VALUE .env file when they are not set already.
+
+    Only the listed names are read; values are never printed or logged.
+    """
+    import os
+
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.strip().partition("=")
+        key = key.removeprefix("export ").strip()
+        if sep and key in names and not os.environ.get(key):
+            os.environ[key] = value.strip().strip('"').strip("'")
+
+
+def fetch_fixture_entsoe(args, registry) -> int:
+    """One real A44 request (with the registry's request parameters) saved unchanged.
+
+    Run by the owner (network, ENTSOE_TOKEN). Never overwrites; writes a
+    .meta.json with the redacted URL, status, fetch time and SHA-256.
+    """
+    import os
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from atlas_pipelines.core.hashing import sha256_bytes
+    from atlas_pipelines.core.http import RateLimiter, http_get
+    from atlas_pipelines.core.limits import load_limit
+    from atlas_pipelines.core.markets import iso_utc, parse_partition_date
+    from atlas_pipelines.sources.entsoe import day_ahead as da
+
+    market = registry["entsoe"]
+    if args.zone not in market.zones or not args.label:
+        print(f"--zone must be one of {market.zones} and --label is required")
+        return 2
+    token = os.environ.get("ENTSOE_TOKEN")
+    if not token:
+        print("ENTSOE_TOKEN is not set (environment or .env)")
+        return 2
+    day = parse_partition_date(args.date)
+    out_dir = Path(args.out) / "entsoe"
+    stem = f"{args.zone}_{day.isoformat()}_{args.label}"
+    body_path, meta_path = out_dir / f"{stem}.xml", out_dir / f"{stem}.meta.json"
+    if body_path.exists() or meta_path.exists():
+        print(f"refusing to overwrite {body_path}")
+        return 1
+    limiter = RateLimiter(load_limit("entsoe", config.REPO_ROOT / "config" / "limits").rpm)
+    params = {**da.request_params(market, args.zone, day), "securityToken": token}
+    res = http_get(da.BASE_URL, params, limiter=limiter, secret_params=("securityToken",))
+    print(f"{res.url_redacted} -> {res.status} {res.outcome} {res.error_class or ''}")
+    if res.outcome == "unknown":
+        print(f"not saved: {res.detail}")
+        return 1
+    out_dir.mkdir(parents=True, exist_ok=True)
+    body_path.write_bytes(res.body)
+    meta = {
+        "source": "entsoe", "zone": args.zone, "date": day.isoformat(), "url": res.url_redacted,
+        "http_status": res.status, "outcome": res.outcome, "fetched_at": iso_utc(datetime.now(timezone.utc)),
+        "sha256": sha256_bytes(res.body), "bytes": len(res.body),
+    }
+    meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"saved {body_path} ({len(res.body)} bytes)")
+    return 0 if res.outcome == "succeeded" else 1
 
 
 def fetch_fixture(args, registry) -> int:

@@ -15,7 +15,8 @@ export MSYS_NO_PATHCONV := 1
 MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate:v4.18.3 \
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
-.PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo
+.PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
+	demo-b1 fixture-entsoe-a01 ingest-entsoe
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -94,3 +95,21 @@ fixture-openmeteo: ## OWNER-RUN (network): save real Open-Meteo responses for go
 	$(ATLAS) fetch-fixture openmeteo --location entsoe:DE_LU --date 2025-10-26
 	$(ATLAS) fetch-fixture openmeteo --location entsoe:ES --date 2026-11-18
 	$(ATLAS) fetch-fixture openmeteo --location entsoe:SE3 --date 2026-11-18
+
+demo-b1:       ## offline: real ENTSO-E files through parser, checks and the pipeline (no network, no token)
+	$(PY) -m pytest -v -c pipelines/pyproject.toml pipelines/tests/golden/test_entsoe_golden.py \
+		pipelines/tests/unit/test_entsoe.py -k "fixture or compressed or selection or pipeline or not_published or revision"
+
+fixture-entsoe-a01: ## OWNER-RUN (network, ENTSOE_TOKEN): re-fetch ES fixtures with contract type A01
+	$(ATLAS) fetch-fixture entsoe --zone ES --date 2026-11-18 --label normal_A01
+	$(ATLAS) fetch-fixture entsoe --zone ES --date 2025-09-30 --label last_hourly_A01
+	$(ATLAS) fetch-fixture entsoe --zone ES --date 2025-10-01 --label first_15min_A01
+	$(ATLAS) fetch-fixture entsoe --zone ES --date 2025-10-26 --label fall_dst_A01
+	$(ATLAS) fetch-fixture entsoe --zone ES --date 2026-03-29 --label spring_dst_A01
+	$(ATLAS) fetch-fixture entsoe --zone ES --date 2025-03-30 --label spring_hourly_A01
+
+FROM ?= 2026-11-17
+TO   ?= 2026-11-23
+ingest-entsoe: ## OWNER-RUN (network, ENTSOE_TOKEN): ingest FROM..TO for all zones into the local lake
+	$(ATLAS) run prices_entsoe_daily --partition $(FROM) --to $(TO)
+	$(ATLAS) catalog
