@@ -12,6 +12,7 @@
 //	ATLAS_ADDR    listen address (default 127.0.0.1:8080; port 0 picks a free port)
 //	ATLAS_REAPER_INTERVAL  how often expired leases are reaped (default 5s, ADR-004)
 //	ATLAS_SCHEDULER_INTERVAL  how often schedules tick and backfills advance (default 30s, ADR-011)
+//	ATLAS_DEADLINE_INTERVAL   how often deadlines are evaluated (default 30s, ADR-012)
 //
 // On start it prints "atlas listening on <addr>" once the socket is bound, so
 // scripts and tests know when it accepts requests.
@@ -78,6 +79,11 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("ATLAS_SCHEDULER_INTERVAL: %q is not a positive duration", os.Getenv("ATLAS_SCHEDULER_INTERVAL"))
 	}
 	go scheduler(ctx, st, tickEvery, log)
+	dlEvery, err := time.ParseDuration(env("ATLAS_DEADLINE_INTERVAL", "30s"))
+	if err != nil || dlEvery <= 0 {
+		return fmt.Errorf("ATLAS_DEADLINE_INTERVAL: %q is not a positive duration", os.Getenv("ATLAS_DEADLINE_INTERVAL"))
+	}
+	go deadlines(ctx, st, dlEvery, log)
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -136,6 +142,28 @@ func scheduler(ctx context.Context, st *store.Store, every time.Duration, log *s
 				log.Error("backfill pass failed", "err", err)
 			} else if n > 0 {
 				log.Info("backfill runs submitted", "runs", n)
+			}
+		}
+	}
+}
+
+// deadlines marks at-risk and missed runs and applies late policies. A missed
+// pass only delays detection: a finishing late run is marked by its own
+// transition, and the evaluator catches active ones on the next pass.
+func deadlines(ctx context.Context, st *store.Store, every time.Duration, log *slog.Logger) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			rep, err := st.EvaluateDeadlines(ctx)
+			if err != nil && ctx.Err() == nil {
+				log.Error("deadline pass failed", "err", err)
+			} else if rep != (store.DeadlineReport{}) {
+				log.Info("deadlines evaluated", "at_risk", rep.AtRisk, "missed", rep.Missed,
+					"canceled", rep.Canceled, "fallbacks", rep.Fallbacks)
 			}
 		}
 	}

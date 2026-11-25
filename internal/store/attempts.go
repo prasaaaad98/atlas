@@ -561,8 +561,15 @@ func syncRunStatus(ctx context.Context, tx pgx.Tx, runID string) (domain.RunStat
 		derived = domain.RunRunning
 	}
 	if string(derived) != current {
-		if _, err := tx.Exec(ctx, `UPDATE workflow_runs SET status = $2, updated_at = now() WHERE id = $1`,
-			runID, string(derived)); err != nil {
+		// finished_at uses clock_timestamp(): the moment this transition is
+		// applied, not the transaction's start, so deadline slack is honest.
+		if _, err := tx.Exec(ctx, `
+			UPDATE workflow_runs SET status = $2, updated_at = now(),
+			       finished_at = CASE WHEN $2 IN ('SUCCEEDED', 'FAILED', 'CANCELED') THEN clock_timestamp() END
+			WHERE id = $1`, runID, string(derived)); err != nil {
+			return "", err
+		}
+		if err := missedAtFinish(ctx, tx, runID); err != nil {
 			return "", err
 		}
 		payload, _ := json.Marshal(map[string]string{"from": current, "to": string(derived)})

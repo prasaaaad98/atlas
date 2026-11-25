@@ -81,6 +81,8 @@ type PipelineDef struct {
 	PartitionKind string            `json:"partition_kind"`
 	PartitionTZ   string            `json:"partition_tz"`
 	Tasks         []domain.TaskSpec `json:"tasks"`
+	// Deadline rule (A7): deadline_at = partition start/end + offset, late policy, fallback.
+	Deadline *domain.DeadlineRule `json:"deadline,omitempty"`
 }
 
 type Pipeline struct {
@@ -120,6 +122,11 @@ func validateDef(def PipelineDef) error {
 	}
 	if err := domain.ValidateDAG(def.Tasks); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	if def.Deadline != nil {
+		if err := def.Deadline.Validate(); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
 	}
 	return nil
 }
@@ -219,6 +226,9 @@ type Run struct {
 	PriorityClass     string           `json:"priority_class"`
 	Status            domain.RunStatus `json:"status"`
 	DeadlineAt        *time.Time       `json:"deadline_at,omitempty"`
+	DeadlineAtRiskAt  *time.Time       `json:"deadline_at_risk_at,omitempty"`
+	DeadlineMissedAt  *time.Time       `json:"deadline_missed_at,omitempty"`
+	FinishedAt        *time.Time       `json:"finished_at,omitempty"`
 	CreatedAt         time.Time        `json:"created_at"`
 	Tasks             []Task           `json:"tasks,omitempty"`
 
@@ -324,6 +334,12 @@ func (s *Store) submitTx(ctx context.Context, req SubmitRequest, hash string) (R
 		return Run{}, false, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 
+	// Deadline: an explicit deadline_at in the request wins; otherwise the
+	// pipeline's rule computes it from the partition (ADR-012).
+	if req.DeadlineAt == nil && p.Def.Deadline != nil {
+		dl := p.Def.Deadline.DeadlineFor(start, end)
+		req.DeadlineAt = &dl
+	}
 	run := Run{
 		TenantID: req.TenantID, IdempotencyKey: req.IdempotencyKey,
 		PipelineName: p.Name, PipelineVersion: p.Version, PartitionKey: req.PartitionKey,
@@ -375,9 +391,11 @@ func (s *Store) submitTx(ctx context.Context, req SubmitRequest, hash string) (R
 			policy, _ = json.Marshal(t.Retry)
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO tasks (run_id, name, status, priority_class, deadline_at, max_attempts, asset_outputs, retry_policy, limit_key)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, nullif($9, '')) RETURNING id`,
-			run.ID, t.Name, string(st), run.PriorityClass, run.DeadlineAt, maxAttempts, nonNil(t.AssetOutputs), policy, t.LimitKey,
+			INSERT INTO tasks (run_id, name, status, priority_class, deadline_at, max_attempts, asset_outputs, retry_policy,
+			                   limit_key, estimate_seconds)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, nullif($9, ''), nullif($10, 0::double precision)) RETURNING id`,
+			run.ID, t.Name, string(st), run.PriorityClass, run.DeadlineAt, maxAttempts, nonNil(t.AssetOutputs), policy,
+			t.LimitKey, t.EstimateSeconds,
 		).Scan(&id); err != nil {
 			return Run{}, false, err
 		}
@@ -434,14 +452,15 @@ func nonNil(s []string) []string {
 // --- reads -----------------------------------------------------------------
 
 const runColumns = `id, tenant_id, idempotency_key, request_hash, pipeline_name, pipeline_version, partition_key,
-	data_interval_start, data_interval_end, trigger, priority_class, status, deadline_at, created_at`
+	data_interval_start, data_interval_end, trigger, priority_class, status, deadline_at, created_at,
+	deadline_at_risk_at, deadline_missed_at, finished_at`
 
 func scanRun(row pgx.Row) (Run, string, error) {
 	var r Run
 	var hash, status string
 	err := row.Scan(&r.ID, &r.TenantID, &r.IdempotencyKey, &hash, &r.PipelineName, &r.PipelineVersion,
 		&r.PartitionKey, &r.DataIntervalStart, &r.DataIntervalEnd, &r.Trigger, &r.PriorityClass, &status,
-		&r.DeadlineAt, &r.CreatedAt)
+		&r.DeadlineAt, &r.CreatedAt, &r.DeadlineAtRiskAt, &r.DeadlineMissedAt, &r.FinishedAt)
 	r.Status = domain.RunStatus(status)
 	r.DataIntervalStart, r.DataIntervalEnd = r.DataIntervalStart.UTC(), r.DataIntervalEnd.UTC()
 	return r, hash, err

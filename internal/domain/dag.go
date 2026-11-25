@@ -38,6 +38,9 @@ type TaskSpec struct {
 	// LimitKey names the source politeness budget this task draws on (A5,
 	// ADR-008); it must be registered (PUT /limit-keys/{key}) first.
 	LimitKey string `json:"limit_key,omitempty"`
+	// EstimateSeconds is the declared duration used for deadline at-risk
+	// estimates until enough history exists (A7). 0 = unknown.
+	EstimateSeconds float64 `json:"estimate_seconds,omitempty"`
 }
 
 // ValidateDAG checks names, dependencies and acyclicity.
@@ -55,6 +58,9 @@ func ValidateDAG(tasks []TaskSpec) error {
 		}
 		if t.MaxAttempts < 0 || t.MaxAttempts > 100 {
 			return fmt.Errorf("%w: task %q max_attempts must be 0..100", ErrInvalidDefinition, t.Name)
+		}
+		if t.EstimateSeconds < 0 || t.EstimateSeconds > 7*24*3600 {
+			return fmt.Errorf("%w: task %q estimate_seconds must be 0..604800", ErrInvalidDefinition, t.Name)
 		}
 		if t.Retry != nil {
 			if err := t.Retry.Validate(); err != nil {
