@@ -1,0 +1,19 @@
+{
+  "scenario": "throughput",
+  "params": {
+    "runs": 100,
+    "tasks_per_run": 10,
+    "workers": 1
+  },
+  "tasks": 1000,
+  "seconds": 17.1410701,
+  "tasks_per_second": 58.33941487702101,
+  "latency_ms": {
+    "max": 17.084,
+    "p50": 6.097,
+    "p95": 7.576,
+    "p99": 8.419
+  },
+  "latency_of": "client-side POST /claim round trip (successful claims)",
+  "double_claims": 0
+}

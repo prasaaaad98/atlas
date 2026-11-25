@@ -1,0 +1,20 @@
+{
+  "scenario": "dispatch",
+  "mode": "notify",
+  "params": {
+    "runs": 200,
+    "submit_interval_ms": 100,
+    "workers": 4
+  },
+  "tasks": 200,
+  "seconds": 21.188459,
+  "latency_ms": {
+    "max": 11.357,
+    "p50": 7.981,
+    "p95": 9.373,
+    "p99": 10.855
+  },
+  "latency_of": "submit 201 received → claim response received, per run",
+  "double_claims": 0,
+  "claims_per_task": 5
+}

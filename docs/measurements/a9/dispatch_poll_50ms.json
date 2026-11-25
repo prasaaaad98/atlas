@@ -1,0 +1,21 @@
+{
+  "scenario": "dispatch",
+  "mode": "poll",
+  "params": {
+    "poll_interval_ms": 50,
+    "runs": 200,
+    "submit_interval_ms": 100,
+    "workers": 4
+  },
+  "tasks": 200,
+  "seconds": 21.1077918,
+  "latency_ms": {
+    "max": 58.868,
+    "p50": 32.533,
+    "p95": 55.197,
+    "p99": 56.544
+  },
+  "latency_of": "submit 201 received → claim response received, per run",
+  "double_claims": 0,
+  "claims_per_task": 8.625
+}
