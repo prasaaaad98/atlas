@@ -9,7 +9,9 @@ fencing token it returns at claim is sent back with every report.
 Who calls it: cli.py (`python -m atlas_pipelines worker`, `register`, `submit`).
 
 One loop iteration (run_one):
-  POST /claim → 204: nothing ready.
+  POST /claim?wait=W → 204: nothing ready within W s. Long-poll (ADR-007):
+    the control plane wakes the request on LISTEN/NOTIFY when a task becomes
+    ready. wait=0 falls back to polling every poll_seconds.
   → find the pipeline + task in this process's definitions; check the run's
     data interval equals the local definition's (guards against a worker
     running code that differs from what was registered).
@@ -189,8 +191,9 @@ def _iso(value: str) -> str:
 
 
 def run_one(client: AtlasClient, pipelines: dict[str, Pipeline], lake_root: str, worker_id: str,
-            lease_seconds: int = 30) -> Outcome | None:
-    status, claim = client.call("POST", "/claim", {"worker_id": worker_id, "lease_seconds": lease_seconds})
+            lease_seconds: int = 30, wait_seconds: float = 0) -> Outcome | None:
+    path = f"/claim?wait={wait_seconds:g}" if wait_seconds > 0 else "/claim"
+    status, claim = client.call("POST", path, {"worker_id": worker_id, "lease_seconds": lease_seconds})
     if status == 204:
         return None
     if status != 200:
@@ -260,16 +263,17 @@ def _report(client: AtlasClient, aid: str, kind: str, body: dict, base: dict, de
 
 def work(client: AtlasClient, pipelines: dict[str, Pipeline], lake_root: str, worker_id: str, *,
          max_tasks: int | None = None, exit_when_idle: bool = False, poll_seconds: float = 2.0,
-         lease_seconds: int = 30,
+         lease_seconds: int = 30, wait_seconds: float = 0,
          on_outcome: Callable[[Outcome], None] = lambda o: None, sleep=time.sleep) -> int:
     """Claim and run tasks until max_tasks is reached, or the queue is empty and exit_when_idle."""
     done = 0
     while max_tasks is None or done < max_tasks:
-        out = run_one(client, pipelines, lake_root, worker_id, lease_seconds)
+        out = run_one(client, pipelines, lake_root, worker_id, lease_seconds, wait_seconds)
         if out is None:
             if exit_when_idle:
                 break
-            sleep(poll_seconds)  # polling; LISTEN/NOTIFY is measured against it in A9
+            if wait_seconds <= 0:
+                sleep(poll_seconds)  # polling mode; long-poll already waited server-side
             continue
         done += 1
         on_outcome(out)

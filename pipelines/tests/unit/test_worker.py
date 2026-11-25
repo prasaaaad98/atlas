@@ -25,7 +25,7 @@ class FakeAtlas:
 
     def send(self, method, path, body):
         self.calls.append((method, path, body))
-        if path == "/claim":
+        if path.split("?")[0] == "/claim":
             return (200, self.claims.pop(0)) if self.claims else (204, None)
         if self.flaky:
             self.flaky -= 1
@@ -219,3 +219,11 @@ def test_source_tasks_declare_their_limit_keys(registry):
     # Keys without a config file couldn't be registered with Atlas.
     assert (REPO / "config" / "limits" / "entsoe.yaml").exists()
     assert (REPO / "config" / "limits" / "openmeteo.yaml").exists()
+
+
+def test_long_poll_claim_sends_wait_and_never_sleeps(lake):
+    fake = FakeAtlas([claim("p", "t")])
+    slept = []
+    n = work(AtlasClient(fake.send), one_task_pipeline(lambda ctx: ([], [])), lake, "w",
+             max_tasks=1, wait_seconds=20, sleep=slept.append)
+    assert n == 1 and fake.calls[0][1] == "/claim?wait=20" and not slept

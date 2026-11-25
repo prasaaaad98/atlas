@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8
+	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -89,6 +89,17 @@ demo-a7:       ## EDF claim order, at-risk before miss, late policy cancel + fal
 
 demo-a8:       ## check-gated current pointer, failed re-run keeps old version, freshness late then fresh (needs make up, make migrate)
 	bash scripts/demo-a8.sh
+
+demo-a9:       ## metrics, run timeline and freshness pages with long-polling workers (needs make up, make migrate)
+	bash scripts/demo-a9.sh
+
+LOAD_URL ?= http://127.0.0.1:8080
+load-throughput: ## measure: 20 workers x 1,000 tasks against $(LOAD_URL) (start it with make run)
+	go run ./cmd/atlas-load -url $(LOAD_URL) -scenario throughput -runs 100 -tasks 10 -workers 20
+
+load-dispatch: ## measure: submit-to-claim latency, polling 1 s vs long-poll NOTIFY, against $(LOAD_URL)
+	go run ./cmd/atlas-load -url $(LOAD_URL) -scenario dispatch -mode poll -poll 1s -n 200 -workers 4
+	go run ./cmd/atlas-load -url $(LOAD_URL) -scenario dispatch -mode notify -n 200 -workers 4
 
 pipelines-venv: ## create pipelines/.venv and install the package with pinned deps
 	python -m venv pipelines/.venv
