@@ -14,6 +14,7 @@
 //	ATLAS_SCHEDULER_INTERVAL  how often schedules tick and backfills advance (default 30s, ADR-011)
 //	ATLAS_DEADLINE_INTERVAL   how often deadlines are evaluated (default 30s, ADR-012)
 //	ATLAS_FRESHNESS_INTERVAL  how often asset freshness is evaluated (default 60s, ADR-013)
+//	ATLAS_UPTIME_INTERVAL     how often this process records that it (and its workers) are up (default 60s)
 //
 // On start it prints "atlas listening on <addr>" once the socket is bound, so
 // scripts and tests know when it accepts requests.
@@ -93,6 +94,11 @@ func run(log *slog.Logger) error {
 	// LISTEN/NOTIFY wake-ups for long-poll claims (POST /claim?wait=N); claims
 	// still work, re-checking every second, while this reconnects.
 	go st.Listen(ctx, func(err error) { log.Warn("listen for ready tasks", "err", err) })
+	upEvery, err := time.ParseDuration(env("ATLAS_UPTIME_INTERVAL", "60s"))
+	if err != nil || upEvery <= 0 || upEvery > time.Minute {
+		return fmt.Errorf("ATLAS_UPTIME_INTERVAL: %q must be a positive duration up to 1m", os.Getenv("ATLAS_UPTIME_INTERVAL"))
+	}
+	go uptime(ctx, st, upEvery, log)
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -198,6 +204,26 @@ func freshness(ctx context.Context, st *store.Store, every time.Duration, log *s
 			}
 			if err != nil && ctx.Err() == nil {
 				log.Error("freshness pass failed", "err", err)
+			}
+		}
+	}
+}
+
+// uptime writes one row per minute while this control plane runs, with the
+// number of workers that asked for work, so the schedule report can tell
+// "the source was late" from "the machine was off".
+func uptime(ctx context.Context, st *store.Store, every time.Duration, log *slog.Logger) {
+	host, _ := os.Hostname()
+	instance := fmt.Sprintf("%s-%d", host, os.Getpid())
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := st.RecordUptime(ctx, instance, st.FlushWorkersSeen()); err != nil && ctx.Err() == nil {
+				log.Error("uptime record failed", "err", err)
 			}
 		}
 	}

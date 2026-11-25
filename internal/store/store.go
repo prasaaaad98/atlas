@@ -57,7 +57,12 @@ type Store struct {
 	jitter func() float64
 	// ready wakes long-poll claims on "task ready" notifications (observe.go).
 	ready readySignal
+	// workersSeen: distinct workers that asked for work since the last uptime flush (uptime.go).
+	workersSeen WorkerSeen
 }
+
+// FlushWorkersSeen returns how many distinct workers claimed since the last call.
+func (s *Store) FlushWorkersSeen() int { return s.workersSeen.Flush() }
 
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	pool, err := pgxpool.New(ctx, databaseURL)

@@ -43,6 +43,7 @@
 //	GET  /assets                     assets with partition counts by status
 //	GET  /assets/{key}/partitions    current pointer and status per partition (?limit=, newest first)
 //	GET  /assets/{key}/partitions/{p} one partition (what a worker's resolve_input reads); 404 if unknown
+//	GET  /reports/schedule?pipeline=&since=YYYY-MM-DD  scheduled runs: lag, waits for the source, uptime coverage
 //
 // A repeated report with the same fencing token (lost response) returns 200
 // with "replay": true; a report from an attempt that no longer holds the task
@@ -88,6 +89,7 @@ type Store interface {
 	Metrics(ctx context.Context) (store.MetricsSnapshot, error)
 	Timeline(ctx context.Context, runID string) ([]store.TimelineEvent, []store.TimelineAttempt, error)
 	ReadySignal() <-chan struct{}
+	ScheduleReport(ctx context.Context, pipeline string, since time.Time) ([]store.ScheduleReportRow, error)
 }
 
 func Handler(s Store, log *slog.Logger) http.Handler {
@@ -255,6 +257,17 @@ func Handler(s Store, log *slog.Logger) http.Handler {
 	})
 	mux.HandleFunc("GET /assets/{key}/partitions/{partition}", func(w http.ResponseWriter, r *http.Request) {
 		out, err := s.AssetPartition(r.Context(), r.PathValue("key"), r.PathValue("partition"))
+		respond(w, log, http.StatusOK, out, err)
+	})
+	mux.HandleFunc("GET /reports/schedule", func(w http.ResponseWriter, r *http.Request) {
+		since, err := time.Parse("2006-01-02", r.URL.Query().Get("since"))
+		if err != nil {
+			since = time.Now().AddDate(0, 0, -30)
+		}
+		out, err := s.ScheduleReport(r.Context(), r.URL.Query().Get("pipeline"), since)
+		if out == nil {
+			out = []store.ScheduleReportRow{}
+		}
 		respond(w, log, http.StatusOK, out, err)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

@@ -87,6 +87,7 @@ func (s *Store) Claim(ctx context.Context, req ClaimRequest) (Claim, bool, error
 	if req.LeaseSeconds < minLeaseSeconds || req.LeaseSeconds > maxLeaseSeconds {
 		return Claim{}, false, fmt.Errorf("%w: lease_seconds must be %d..%d", ErrInvalid, minLeaseSeconds, maxLeaseSeconds)
 	}
+	s.workersSeen.Saw(req.WorkerID) // liveness for the uptime record, even if nothing is ready
 	next, err := domain.Next(domain.Ready, domain.EvClaim)
 	if err != nil {
 		return Claim{}, false, err
