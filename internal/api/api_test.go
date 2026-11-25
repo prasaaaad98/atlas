@@ -95,3 +95,42 @@ func TestHTTPContract(t *testing.T) {
 		t.Errorf("healthz: %d", code)
 	}
 }
+
+func TestWorkerEndpointsContract(t *testing.T) {
+	srv := server(t)
+	call(t, srv, "POST", "/pipelines", pipelineJSON)
+	call(t, srv, "POST", "/runs", runJSON("k1", "2026-11-24"))
+
+	code, c := call(t, srv, "POST", "/claim", `{"worker_id":"w1"}`)
+	if code != 200 || c["task"] != "fetch" || c["fencing_token"] != float64(1) {
+		t.Fatalf("claim: %d %v", code, c)
+	}
+	id := c["attempt_id"].(string)
+	if code, _ := call(t, srv, "POST", "/claim", `{"worker_id":"w2"}`); code != 204 {
+		t.Errorf("claim with nothing ready: %d, want 204 (parse is BLOCKED, fetch leased)", code)
+	}
+	if code, body := call(t, srv, "POST", "/attempts/"+id+"/complete", `{"fencing_token":1}`); code != 409 || body["error"] != "illegal_transition" {
+		t.Errorf("complete before start: %d %v", code, body)
+	}
+	if code, body := call(t, srv, "POST", "/attempts/"+id+"/start", `{"fencing_token":2}`); code != 409 || body["error"] != "stale_attempt" {
+		t.Errorf("wrong token: %d %v", code, body)
+	}
+	if code, body := call(t, srv, "POST", "/attempts/"+id+"/start", `{"fencing_token":1}`); code != 200 || body["task_status"] != "RUNNING" {
+		t.Errorf("start: %d %v", code, body)
+	}
+	if code, body := call(t, srv, "POST", "/attempts/"+id+"/fail", `{"fencing_token":1,"error_class":"x"}`); code != 400 {
+		t.Errorf("fail without outcome: %d %v", code, body)
+	}
+	if code, body := call(t, srv, "POST", "/attempts/"+id+"/complete", `{"fencing_token":1,"checks":[{"check_name":"c","severity":"blocking","passed":true}],"materializations":[{"asset_key":"bronze.x"}]}`); code != 200 || body["task_status"] != "SUCCEEDED" {
+		t.Errorf("complete: %d %v", code, body)
+	}
+	if code, body := call(t, srv, "POST", "/attempts/"+id+"/complete", `{"fencing_token":1}`); code != 200 || body["replay"] != true {
+		t.Errorf("repeated complete: %d %v", code, body)
+	}
+	if code, _ := call(t, srv, "POST", "/attempts/"+id+"/start", `{"fencing_token":1,"extra":true}`); code != 400 {
+		t.Errorf("unknown field: %d, want 400", code)
+	}
+	if code, _ := call(t, srv, "POST", "/attempts/not-a-uuid/start", `{"fencing_token":1}`); code != 404 {
+		t.Errorf("unknown attempt: %d, want 404", code)
+	}
+}
