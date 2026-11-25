@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch
+	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill fault
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -100,6 +100,17 @@ load-throughput: ## measure: 20 workers x 1,000 tasks against $(LOAD_URL) (start
 load-dispatch: ## measure: submit-to-claim latency, polling 1 s vs long-poll NOTIFY, against $(LOAD_URL)
 	go run ./cmd/atlas-load -url $(LOAD_URL) -scenario dispatch -mode poll -poll 1s -n 200 -workers 4
 	go run ./cmd/atlas-load -url $(LOAD_URL) -scenario dispatch -mode notify -n 200 -workers 4
+
+demo-b7:       ## offline: real ENTSO-E files through Atlas + workers (kill -9, deadline miss), gold spreads, catalog from Atlas
+	bash scripts/demo-b7.sh
+
+b7-backfill:   ## OWNER-RUN (network, ENTSOE_TOKEN): ENTSO-E history FROM..TO through Atlas (CHAOS=1 kills workers)
+	bash scripts/b7-backfill.sh
+
+FAULT_TESTS = ^(TestKillAfterAckRunIsDurable|TestConcurrentDuplicateSubmitsCreateOneRun|TestConcurrentDifferentKeysOneWinner|TestConcurrentClaimersNeverDoubleClaim|TestConcurrentLastCompletionsFinishTheRun|TestStaleTokenAndReplacedAttemptAreRejected|TestCrashedWorkerTaskIsReRun|TestPausedWorkerCannotOverwriteNewAttempt|TestExpiredLeaseIsFencedBeforeTheReaperRuns|TestReaperSkipsALockedTask|TestExpiriesCountAsAttempts|TestHundredPartitionsWithRandomWorkerDeaths|TestConcurrentParentCompletionsReadyTheChild|TestLimitKeyConcurrencyNeverExceeded|TestRateLimitedFailurePausesKeyAndRecovers|TestTickCrashOrOverlapCreatesEachPartitionOnce|TestEveryLateRunHasExactlyOneMissedEvent|TestFencedOutAttemptsOutputNeverBecomesCurrent|TestFailedBlockingCheckLeavesPointerAndCancelsDependents|TestLongPollClaimWakesOnNotify)$$
+fault:         ## every crash/race/stale-worker/fault scenario in one command (Go with -race, then Python)
+	@mkdir -p bin; go test -race -count=1 -v -run '$(FAULT_TESTS)' ./... > bin/fault-go.log 2>&1; rc=$$?; 	  grep -E '^(--- |ok|FAIL|panic)' bin/fault-go.log; exit $$rc
+	$(PY) -m pytest -q -c pipelines/pyproject.toml pipelines/tests -k "not_published or http_failures or lost_response or stale or unreachable or missing_token or wrong_day or missing_interval or duplicate_position or unknown_series or tampered"
 
 pipelines-venv: ## create pipelines/.venv and install the package with pinned deps
 	python -m venv pipelines/.venv
