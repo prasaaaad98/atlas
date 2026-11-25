@@ -35,7 +35,7 @@ import polars as pl
 
 from atlas_pipelines.core.hashing import sha256_file
 from atlas_pipelines.core.lake import absolute_path
-from atlas_pipelines.core.manifest import set_pointer, write_run_manifest
+from atlas_pipelines.core.manifest import read_pointer, set_pointer, write_run_manifest
 from atlas_pipelines.core.markets import iso_utc
 from atlas_pipelines.core.pipeline import Pipeline
 from atlas_pipelines.core.task import RetryableTaskError, TaskContext, blocking_failures
@@ -99,6 +99,7 @@ def run_pipeline(pipeline: Pipeline, partition_key: str, lake_root: str) -> RunR
             checkpoint=None,
             lake_root=lake_root,
             heartbeat=lambda details: True,  # local runs are never canceled
+            resolve_input=lambda asset, part: read_pointer(lake_root, asset, part),
         )
         try:
             mats, checks = tdef.fn(ctx)

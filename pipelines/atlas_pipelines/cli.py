@@ -55,7 +55,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("pipeline")
     r.add_argument("--partition", required=True)
     r.add_argument("--to", help="last partition (inclusive): run each day from --partition to --to")
-    sub.add_parser("catalog")
+    cat = sub.add_parser("catalog")
+    cat.add_argument("--from-atlas", action="store_true",
+                     help="use Atlas's current pointers (GET /assets) instead of the local runner's")
     reg = sub.add_parser("register")
     reg.add_argument("pipeline")
     sm = sub.add_parser("submit")
@@ -150,7 +152,19 @@ def main(argv: list[str] | None = None) -> int:
         return atlas_command(args, pipelines, lake)
 
     if args.cmd == "catalog":
-        path, counts = build_catalog(lake)
+        pointers = None
+        if args.from_atlas:
+            import os
+
+            from atlas_pipelines.worker import AtlasClient, AtlasError, urllib_send
+
+            client = AtlasClient(urllib_send(args.atlas or os.environ.get("ATLAS_URL", "http://127.0.0.1:8080")))
+            try:
+                pointers = atlas_pointers(client)
+            except AtlasError as e:
+                print(f"atlas: {e}")
+                return 1
+        path, counts = build_catalog(lake, pointers)
         print(f"catalog: {path}")
         for k, n in sorted(counts.items()):
             print(f"  {k:<36} {n} current partition(s)")
@@ -273,6 +287,25 @@ def atlas_command(args, pipelines, lake: str) -> int:
     except AtlasError as e:
         print(f"atlas: {e}")
         return 1
+
+
+def atlas_pointers(client) -> list[dict]:
+    """Every current pointer Atlas holds: only fenced, check-passing materializations (ADR-013)."""
+    from atlas_pipelines.worker import AtlasError
+
+    status, assets = client.call("GET", "/assets")
+    if status != 200:
+        raise AtlasError(status, assets, "GET /assets")
+    out = []
+    for a in assets or []:
+        status, parts = client.call("GET", f"/assets/{a['key']}/partitions?limit=20000")
+        if status != 200:
+            raise AtlasError(status, parts, f"GET /assets/{a['key']}/partitions")
+        for p in parts or []:
+            if p.get("current"):
+                out.append({"asset_key": a["key"], "partition_key": p["partition_key"], "uri": p["current"]["uri"],
+                            "content_hash": p["current"]["content_hash"]})
+    return out
 
 
 def _run_one(pipeline, partition: str, lake: str) -> int:

@@ -26,8 +26,12 @@ from atlas_pipelines.core.manifest import list_pointers
 CATALOG_NAME = "catalog.duckdb"
 
 
-def build_catalog(lake_root: str) -> tuple[Path, dict[str, int]]:
-    """Rebuild <lake>/catalog.duckdb. Returns its path and {asset_key: current partitions}."""
+def build_catalog(lake_root: str, pointers: list[dict] | None = None) -> tuple[Path, dict[str, int]]:
+    """Rebuild <lake>/catalog.duckdb. Returns its path and {asset_key: current partitions}.
+
+    pointers: current pointers as [{"asset_key", "partition_key", "uri"}]. None =
+    the local runner's JSON pointers; the CLI passes Atlas's (catalog --from-atlas).
+    """
     root = resolve_lake_root(lake_root)
     root.mkdir(parents=True, exist_ok=True)
     target = root / CATALOG_NAME
@@ -36,7 +40,7 @@ def build_catalog(lake_root: str) -> tuple[Path, dict[str, int]]:
         tmp.unlink()
 
     files: dict[str, list[str]] = defaultdict(list)
-    for p in list_pointers(lake_root):
+    for p in (list_pointers(lake_root) if pointers is None else pointers):
         # Bronze raw files (HTML/CSV/JSON) are not tabular; only Parquet gets a view.
         if not p["uri"].endswith(".parquet"):
             continue

@@ -226,11 +226,23 @@ def run_one(client: AtlasClient, pipelines: dict[str, Pipeline], lake_root: str,
         raise
 
     hb = Heartbeater(client, aid, token, lease_seconds)
+
+    def resolve_input(asset_key: str, partition_key: str) -> dict | None:
+        # Atlas's current pointer (A8): only fenced, check-passing outputs.
+        status, out = client.call("GET", f"/assets/{asset_key}/partitions/{partition_key}")
+        if status == 404:
+            return None
+        if status != 200:
+            raise AtlasError(status, out, f"resolve {asset_key} {partition_key}: HTTP {status}")
+        cur = (out or {}).get("current")
+        return {**cur, "status": out.get("status")} if cur else None
+
     ctx = TaskContext(
         pipeline=claim["pipeline"], task=claim["task"], partition_key=claim["partition_key"],
         data_interval_start=local[0], data_interval_end=local[1], attempt_id=aid,
         checkpoint=claim.get("checkpoint"), lake_root=lake_root,
         heartbeat=hb.beat,
+        resolve_input=resolve_input,
     )
     try:
         with hb:

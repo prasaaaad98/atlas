@@ -25,6 +25,10 @@ from dataclasses import dataclass
 SEVERITIES = ("blocking", "warn")
 
 
+def _no_inputs(asset_key: str, partition_key: str) -> dict | None:
+    return None
+
+
 @dataclass(frozen=True)
 class TaskContext:
     pipeline: str
@@ -36,6 +40,13 @@ class TaskContext:
     checkpoint: dict | None  # details from the last heartbeat of a previous attempt
     lake_root: str  # path or file:// URI; see core/lake.py
     heartbeat: Callable[[dict | None], bool]  # returns False when cancel is requested
+    # resolve_input(asset_key, partition_key) -> the CURRENT materialization of
+    # an asset partition ({"uri", "content_hash", "row_count", ...}) or None.
+    # Provided by the runner: local JSON pointers in the local runner, Atlas's
+    # asset_partitions (GET /assets/{key}/partitions/{p}) on a worker. Tasks
+    # read upstream data only through this, never by guessing paths, so they
+    # see exactly what passed its checks (ADR-013) under either runner.
+    resolve_input: Callable[[str, str], dict | None] = _no_inputs
 
 
 @dataclass(frozen=True)
