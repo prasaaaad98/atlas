@@ -213,9 +213,15 @@ def test_source_tasks_declare_their_limit_keys(registry):
     from atlas_pipelines.defs.prices import price_pipelines
     from conftest import REPO
     [prices] = price_pipelines(load_registry(REPO / "config" / "markets"))
-    for t in pipeline_definition(prices)["tasks"]:
-        assert t["limit_key"] == "entsoe" and t["max_attempts"] == 8
-        assert t["retry"]["initial_interval_seconds"] == 60
+    tasks = pipeline_definition(prices)["tasks"]
+    for t in tasks:
+        if t["name"].startswith("ingest_"):
+            assert t["limit_key"] == "entsoe" and t["max_attempts"] == 8
+            assert t["retry"]["initial_interval_seconds"] == 60
+        else:  # gold: local computation, no source budget; runs only after its zone's ingest
+            assert t["name"].startswith("spreads_") and "limit_key" not in t
+            assert t["deps"] == ["ingest_" + t["name"].removeprefix("spreads_")]
+    assert len(tasks) == 6
     # Keys without a config file couldn't be registered with Atlas.
     assert (REPO / "config" / "limits" / "entsoe.yaml").exists()
     assert (REPO / "config" / "limits" / "openmeteo.yaml").exists()

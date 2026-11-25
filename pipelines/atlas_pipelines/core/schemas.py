@@ -48,6 +48,29 @@ WEATHER_HOURLY: dict[str, tuple[pl.DataType, bool]] = {
 }
 
 
+# gold.daily_spreads (gold/spreads.py; definitions owner-confirmed 2026-11-25).
+DAILY_SPREADS: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, False),
+    "local_date": (pl.Date, False),
+    "interval_minutes": (pl.Int16, False),
+    "intervals": (pl.Int16, False),
+    "currency": (pl.String, False),
+    "min_price": (pl.Float64, False),
+    "max_price": (pl.Float64, False),
+    "max_min_spread": (pl.Float64, False),
+    "block_minutes": (pl.Int16, False),
+    "best_2h_buy_start_utc": (UTC, True),   # null only if two blocks don't fit in the day
+    "best_2h_buy_mean": (pl.Float64, True),
+    "best_2h_sell_start_utc": (UTC, True),
+    "best_2h_sell_mean": (pl.Float64, True),
+    "best_2h_spread": (pl.Float64, True),
+    "source_uri": (pl.String, False),          # the silver file the row was computed from
+    "source_content_hash": (pl.String, False),
+    "definition_version": (pl.String, False),
+}
+
+
 def empty_frame(schema: dict) -> pl.DataFrame:
     return pl.DataFrame(schema={c: t for c, (t, _) in schema.items()})
 

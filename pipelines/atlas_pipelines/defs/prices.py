@@ -11,6 +11,17 @@ runner (and later Atlas) runs per delivery day (CET/CEST). Each task:
 Assets are per zone (`silver.power_prices__entsoe_<zone>`), so one zone failing
 never blocks another; the catalog unions them into `silver.power_prices`.
 
+Gold (B7): `spreads_<zone>` depends on `ingest_<zone>`, so it runs only after
+that zone's silver passed its blocking checks and became current. It reads the
+silver partition through ctx.resolve_input (the runner's current pointer),
+verifies the file's hash against the pointer, and writes
+`gold.daily_spreads__entsoe_<zone>` (gold/spreads.py). Derived from ENTSO-E
+prices: internal research only, never published (docs/data/sources/entsoe.md).
+
+Source URL: ATLAS_ENTSOE_BASE_URL may point the fetcher at a local fake that
+serves saved real files (scripts/fake_entsoe.py, offline demos). Only
+http://127.0.0.1 / localhost is accepted, so the token can't be sent elsewhere.
+
 Retry rules (outcome classes, CLAUDE.md):
   - network failure → `unknown` → RetryableTaskError("network").
   - HTTP 429 / 5xx → retryable (rate_limited / server_error), raw kept.
@@ -27,17 +38,20 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from datetime import date, datetime, timezone
+from urllib.parse import urlsplit
+
+import polars as pl
 
 from atlas_pipelines.core import config
 from atlas_pipelines.core.hashing import sha256_file
 from atlas_pipelines.core.http import RateLimiter, http_get
-from atlas_pipelines.core.lake import attempt_dir, relative_uri, write_parquet_atomic
+from atlas_pipelines.core.lake import absolute_path, attempt_dir, relative_uri, write_parquet_atomic
 from atlas_pipelines.core.limits import load_limit
-from atlas_pipelines.core.manifest import read_pointer
 from atlas_pipelines.core.markets import Market, iso_utc
 from atlas_pipelines.core.pipeline import Pipeline, TaskDef
 from atlas_pipelines.core.task import CheckResult, Materialization, RetryableTaskError, TaskContext
 from atlas_pipelines.sources.adapter import revision_check, write_bronze
+from atlas_pipelines.gold import spreads
 from atlas_pipelines.sources.entsoe import day_ahead as da
 
 TOKEN_ENV = "ENTSOE_TOKEN"
@@ -48,6 +62,16 @@ def _limiter(key: str) -> RateLimiter:
     if key not in _limiters:  # one per key per process, shared by all zones
         _limiters[key] = RateLimiter(load_limit(key, config.REPO_ROOT / "config" / "limits").rpm)
     return _limiters[key]
+
+
+def base_url() -> str:
+    override = os.environ.get("ATLAS_ENTSOE_BASE_URL")
+    if not override:
+        return da.BASE_URL
+    host = urlsplit(override).hostname
+    if host not in ("127.0.0.1", "localhost"):
+        raise RuntimeError(f"ATLAS_ENTSOE_BASE_URL must be a local fake (127.0.0.1/localhost), got host {host!r}")
+    return override
 
 
 def _utcnow() -> datetime:
@@ -69,12 +93,13 @@ def make_task(market: Market, zone: str, *, opener=None, now: Callable[[], datet
         local_date = date.fromisoformat(ctx.partition_key)
         params = {**da.request_params(market, zone, local_date), "securityToken": token}
         kwargs = {"opener": opener} if opener else {}
-        res = http_get(da.BASE_URL, params, limiter=limiter or _limiter("entsoe"),
+        res = http_get(base_url(), params, limiter=limiter or _limiter("entsoe"),
                        secret_params=("securityToken",), **kwargs)
         if res.outcome == "unknown":
             raise RetryableTaskError("network", f"entsoe {zone}: outcome unknown: {res.detail}")
 
-        previous = read_pointer(ctx.lake_root, bronze_asset, ctx.partition_key)
+        # Previous raw response for this day, from whichever runner owns pointers.
+        previous = ctx.resolve_input(bronze_asset, ctx.partition_key)
         bronze = write_bronze(
             ctx, source="entsoe", dataset=f"day_ahead__{slug}", partition_field="date",
             filename="raw.xml", data=res.body, fetched_at=now(), source_url=res.url_redacted,
@@ -146,13 +171,49 @@ def make_task(market: Market, zone: str, *, opener=None, now: Callable[[], datet
                    retry={"initial_interval_seconds": 60, "backoff_coefficient": 2, "max_interval_seconds": 3600})
 
 
+def make_spreads_task(market: Market, zone: str, ingest: TaskDef) -> TaskDef:
+    slug = zone.lower()
+    silver_asset = f"silver.power_prices__{market.id}_{slug}"
+    gold_dataset = f"daily_spreads__{market.id}_{slug}"
+
+    def build(ctx: TaskContext):
+        local_date = date.fromisoformat(ctx.partition_key)
+        current = ctx.resolve_input(silver_asset, ctx.partition_key)
+        if current is None:
+            # Can't happen after a successful ingest_<zone> in the same run; if it
+            # does, the pointer store is inconsistent: fail loudly, don't guess.
+            return [], [CheckResult("input_current", "blocking", False, {"asset": silver_asset})]
+        path = absolute_path(ctx.lake_root, current["uri"])
+        actual = sha256_file(path)
+        if actual != current["content_hash"]:
+            return [], [CheckResult("input_hash_matches_pointer", "blocking", False,
+                                    {"uri": current["uri"], "pointer": current["content_hash"], "file": actual})]
+        silver = pl.read_parquet(path)
+        df, checks = spreads.compute(silver, local_date, len(market.intervals(da.PRODUCT, local_date)),
+                                     current["uri"], current["content_hash"])
+        if df.is_empty():
+            return [], checks
+        out = attempt_dir(ctx.lake_root, "gold", gold_dataset, "date", ctx.partition_key, ctx.attempt_id)
+        file = out / "part-0.parquet"
+        write_parquet_atomic(df, file)
+        mat = Materialization(asset_key=f"gold.{gold_dataset}", partition_key=ctx.partition_key,
+                              uri=relative_uri(ctx.lake_root, file), row_count=df.height,
+                              content_hash=sha256_file(file), schema_version="daily_spreads-1",
+                              code_version=spreads.DEFINITION_VERSION)
+        return [mat], checks
+
+    return TaskDef(f"spreads_{slug}", build, deps=(ingest.name,), asset_outputs=(f"gold.{gold_dataset}",))
+
+
 def price_pipelines(registry: dict[str, Market], **task_kwargs) -> list[Pipeline]:
     market = registry.get("entsoe")
     if market is None or "entsoe" not in (market.raw or {}):
         return []
+    ingests = [make_task(market, z, **task_kwargs) for z in market.zones]
+    golds = [make_spreads_task(market, z, t) for z, t in zip(market.zones, ingests)]
     return [Pipeline(
         name="prices_entsoe_daily",
         partition_tz=market.timezone,
-        tasks=tuple(make_task(market, z, **task_kwargs) for z in market.zones),
+        tasks=tuple(ingests + golds),
         description="ENTSO-E A44 day-ahead prices per zone (development/testing/internal research only)",
     )]
