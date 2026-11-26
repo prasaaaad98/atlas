@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 ingest-eia
+	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 demo-e3 ingest-eia
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -124,13 +124,17 @@ demo-b4e:      ## calendar: build 2022..next year, then show 2026 holidays, week
 demo-e1:       ## offline: real saved EIA responses through the client (paging, truncation, failures, key handling)
 	$(PY) -m pytest -v -c pipelines/pyproject.toml pipelines/tests/unit/test_eia_client.py
 
+demo-e3:       ## offline: real EIA-930 fuel responses -> silver.generation (mapping, gaps, negatives)
+	$(PY) -m pytest -v -c pipelines/pyproject.toml pipelines/tests/unit/test_eia_fuel.py
+
 demo-e2:       ## offline: real EIA-930 responses -> silver.demand / silver.interchange (DST, vintages, gaps)
 	$(PY) -m pytest -v -c pipelines/pyproject.toml pipelines/tests/unit/test_eia_region.py
 
 EIA_FROM ?= $(shell date -u -d '30 days ago' +%Y-%m-%d)
 EIA_TO   ?= $(shell date -u -d '2 days ago' +%Y-%m-%d)
-ingest-eia:    ## OWNER-RUN (network, EIA_API_KEY): EIA-930 demand + interchange for every BA, EIA_FROM..EIA_TO
+ingest-eia:    ## OWNER-RUN (network, EIA_API_KEY): EIA-930 demand, interchange and generation by fuel, every BA, EIA_FROM..EIA_TO
 	$(ATLAS) run eia930_region_daily --partition $(EIA_FROM) --to $(EIA_TO)
+	$(ATLAS) run eia930_fuel_daily --partition $(EIA_FROM) --to $(EIA_TO)
 	$(ATLAS) catalog
 
 FAULT_TESTS = ^(TestKillAfterAckRunIsDurable|TestConcurrentDuplicateSubmitsCreateOneRun|TestConcurrentDifferentKeysOneWinner|TestConcurrentClaimersNeverDoubleClaim|TestConcurrentLastCompletionsFinishTheRun|TestStaleTokenAndReplacedAttemptAreRejected|TestCrashedWorkerTaskIsReRun|TestPausedWorkerCannotOverwriteNewAttempt|TestExpiredLeaseIsFencedBeforeTheReaperRuns|TestReaperSkipsALockedTask|TestExpiriesCountAsAttempts|TestHundredPartitionsWithRandomWorkerDeaths|TestConcurrentParentCompletionsReadyTheChild|TestLimitKeyConcurrencyNeverExceeded|TestRateLimitedFailurePausesKeyAndRecovers|TestTickCrashOrOverlapCreatesEachPartitionOnce|TestEveryLateRunHasExactlyOneMissedEvent|TestFencedOutAttemptsOutputNeverBecomesCurrent|TestFailedBlockingCheckLeavesPointerAndCancelsDependents|TestLongPollClaimWakesOnNotify)$$

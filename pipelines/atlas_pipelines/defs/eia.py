@@ -36,7 +36,8 @@ from atlas_pipelines.core.limits import load_limit
 from atlas_pipelines.core.markets import Market, iso_utc
 from atlas_pipelines.core.pipeline import Pipeline, TaskDef
 from atlas_pipelines.core.task import CheckResult, Materialization, RetryableTaskError, TaskContext
-from atlas_pipelines.sources.eia import client, region
+from atlas_pipelines.sources import fuels
+from atlas_pipelines.sources.eia import client, fuel, region
 
 KEY_ENV = "EIA_API_KEY"
 RETRY = {"initial_interval_seconds": 60, "backoff_coefficient": 2, "max_interval_seconds": 1800}
@@ -144,6 +145,54 @@ def make_interchange_task(market: Market, ba: str, ingest: TaskDef, *, now: Call
                    max_attempts=8, retry=RETRY)
 
 
+def generation_revision_check(new: pl.DataFrame, previous: pl.DataFrame | None) -> CheckResult:
+    """Warn when a value changed since the current silver (EIA-930 is revised)."""
+    if previous is None or previous.is_empty():
+        return CheckResult("source_revision", "warn", True, {"previous": None})
+    key = ["interval_start_utc", "source_fuel_code"]
+    changed = new.select(key + ["generation_mw"]).join(
+        previous.select(key + [pl.col("generation_mw").alias("previous_mw")]), on=key
+    ).filter(pl.col("generation_mw").ne_missing(pl.col("previous_mw")))
+    return CheckResult("source_revision", "warn", changed.is_empty(), {"changed_values": changed.height})
+
+
+def make_fuel_task(market: Market, ba: str, *, opener=None, now: Callable[[], datetime] = _utcnow,
+                   limiter: RateLimiter | None = None) -> TaskDef:
+    """E3: EIA-930 fuel-type-data for one BA and UTC day -> silver.generation__us_ba_<ba>."""
+    region.eia_section(market)
+    mapping, _ = fuels.load_mapping("eia930")  # fail at definition time on a bad mapping
+    slug = ba.lower()
+    bronze_asset, gen_ds = f"bronze.eia_fuel_type_data__{slug}", f"generation__{market.id}_{slug}"
+
+    def ingest(ctx: TaskContext):
+        key = os.environ.get(KEY_ENV)
+        if not key:
+            raise RuntimeError(f"{KEY_ENV} is not set (put it in .env; never commit it)")
+        day = date.fromisoformat(ctx.partition_key)
+        f = client.fetch(fuel.ROUTE, fuel.request_params(ba, day), key=key, limiter=limiter or _limiter(),
+                         sort=fuel.KEY_COLUMNS, opener=opener)
+        fetched_at = now()
+        b = client.write_fetch(ctx, f, f"fuel_type_data__{slug}", fetched_at, fuel.CODE_VERSION)
+        mats = [b.materialization]
+        results = list(b.checks) + client.checks(f, fuel.KEY_COLUMNS)
+        if f.outcome == "unknown" or f.error_class in ("rate_limited", "server_error"):
+            raise RetryableTaskError(f.error_class or "network", f"eia fuel {ba} {ctx.partition_key}: {f.stopped}",
+                                     materializations=mats, checks=results)
+        if any(c.severity == "blocking" and not c.passed for c in results):
+            return mats, results
+        gen, unknown = fuel.parse(f.rows, market, ba, day, fetched_at, b.materialization.uri, mapping)
+        previous = _current_frame(ctx, f"silver.{gen_ds}")
+        data_checks = fuel.checks(gen, f.rows, unknown, day, mapping) + [generation_revision_check(gen, previous)]
+        if fuel.incomplete_only(data_checks) and now() < region.publication_deadline(market, day):
+            raise RetryableTaskError("source_not_ready", f"eia fuel {ba} {ctx.partition_key}: hours still missing",
+                                     retry_after_s=1800, materializations=mats, checks=results + data_checks)
+        mats.append(_write(ctx, gen, gen_ds, "generation-1"))
+        return mats, results + data_checks
+
+    return TaskDef(f"ingest_{slug}", ingest, asset_outputs=(bronze_asset, f"silver.{gen_ds}"),
+                   max_attempts=8, limit_key="eia", retry=RETRY)
+
+
 def eia_pipelines(registry: dict[str, Market], **task_kwargs) -> list[Pipeline]:
     market = registry.get("us_ba")
     if market is None or "eia" not in (market.raw or {}):
@@ -151,5 +200,8 @@ def eia_pipelines(registry: dict[str, Market], **task_kwargs) -> list[Pipeline]:
     ingests = [make_region_task(market, ba, **task_kwargs) for ba in market.zones]
     inters = [make_interchange_task(market, ba, t, **({"now": task_kwargs["now"]} if "now" in task_kwargs else {}))
               for ba, t in zip(market.zones, ingests)]
+    fuel_tasks = [make_fuel_task(market, ba, **task_kwargs) for ba in market.zones]
     return [Pipeline("eia930_region_daily", "UTC", tuple(ingests + inters),
-                     description="EIA-930 demand, day-ahead forecast and net interchange per US BA (UTC days)")]
+                     description="EIA-930 demand, day-ahead forecast and net interchange per US BA (UTC days)"),
+            Pipeline("eia930_fuel_daily", "UTC", tuple(fuel_tasks),
+                     description="EIA-930 net generation by fuel per US BA (UTC days)")]

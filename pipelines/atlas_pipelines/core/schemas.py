@@ -110,6 +110,28 @@ DEMAND: dict[str, tuple[pl.DataType, bool]] = {
     "source_uri": (pl.String, False),
 }
 
+# silver.generation (PHASE_AB_PLAN.md §3.3): demand's columns with fuel_type and
+# generation_mw. fuel_type is canonical (config/fuel_types.yaml); source_fuel_code keeps
+# the source's own code for lineage. Key adds fuel_type.
+GENERATION: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, False),
+    "interval_start_utc": (UTC, False),
+    "interval_end_utc": (UTC, False),
+    "interval_minutes": (pl.Int16, False),
+    "local_date": (pl.Date, False),
+    "local_hour": (pl.Int8, False),
+    "fuel_type": (pl.String, False),
+    "source_fuel_code": (pl.String, False),
+    "generation_mw": (pl.Float64, True),      # NET generation, average MW; may be negative (station use, charging)
+    "kind": (pl.String, False),               # actual (EIA-930 has no fuel forecasts)
+    "issued_at_utc": (UTC, True),
+    "horizon_minutes": (pl.Int32, True),
+    "fetched_at_utc": (UTC, False),
+    "availability_assumption": (pl.String, True),
+    "source_uri": (pl.String, False),
+}
+
 # silver.interchange (EIA plan §4): net interchange per zone and interval.
 INTERCHANGE: dict[str, tuple[pl.DataType, bool]] = {
     "market": (pl.String, False),
