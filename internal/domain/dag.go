@@ -134,6 +134,9 @@ func DailyInterval(partitionKey, tz string) (time.Time, time.Time, error) {
 }
 
 // ValidTrigger and ValidPriorityClass mirror the CHECK constraints in migration 000001.
-func ValidTrigger(s string) bool { return s == "schedule" || s == "backfill" || s == "manual" }
+// "refetch" added in migration 000010 (E6: re-fetching revised source data).
+func ValidTrigger(s string) bool {
+	return s == "schedule" || s == "backfill" || s == "manual" || s == "refetch"
+}
 
 func ValidPriorityClass(s string) bool { return s == "live" || s == "backfill" || s == "adhoc" }

@@ -15,6 +15,12 @@
 //   - A backfill never has more than max_concurrent_runs active runs, runs
 //     oldest partition first at priority `backfill` (so live runs are claimed
 //     first), and waits instead of skipping when another run holds a partition.
+//   - Month grain (E6): the primary key is "schedule:<pipeline>:<P>:<local fire
+//     date>", so each fire rebuilds the (partial) current month once.
+//   - Re-fetch (E6): partition P is submitted again once per refetch_after_days
+//     value d, on the first fire at least d days after P ended, under the
+//     deterministic key "refetch:<pipeline>:<P>:<d>" (priority backfill, so
+//     live runs are claimed first). Same crash/overlap safety as above.
 //   - All time decisions use the database clock (SELECT now()).
 package store
 
@@ -43,6 +49,17 @@ type Schedule struct {
 	StartPartition      *string    `json:"start_partition,omitempty"`
 	Enabled             bool       `json:"enabled"`
 	Cursor              *time.Time `json:"cursor,omitempty"` // last fire time submitted
+	// E6 (migration 000010). Grain "" means "day".
+	PartitionGrain        string `json:"partition_grain,omitempty"`
+	PartitionOffsetMonths int    `json:"partition_offset_months,omitempty"`
+	RefetchAfterDays      []int  `json:"refetch_after_days,omitempty"`
+}
+
+func (sch Schedule) grain() string {
+	if sch.PartitionGrain == "" {
+		return "day"
+	}
+	return sch.PartitionGrain
 }
 
 // SetSchedule creates or replaces a pipeline's schedule. The cursor is kept
@@ -60,6 +77,35 @@ func (s *Store) SetSchedule(ctx context.Context, sch Schedule) (Schedule, error)
 	if sch.Catchup && sch.StartPartition == nil {
 		return Schedule{}, fmt.Errorf("%w: catchup needs start_partition", ErrInvalid)
 	}
+	switch sch.grain() {
+	case "day":
+		if sch.PartitionOffsetMonths != 0 {
+			return Schedule{}, fmt.Errorf("%w: partition_offset_months needs partition_grain month", ErrInvalid)
+		}
+	case "month":
+		if sch.PartitionOffsetDays != 0 {
+			return Schedule{}, fmt.Errorf("%w: month grain uses partition_offset_months, not days", ErrInvalid)
+		}
+		if sch.PartitionOffsetMonths < -24 || sch.PartitionOffsetMonths > 24 {
+			return Schedule{}, fmt.Errorf("%w: partition_offset_months must be -24..24", ErrInvalid)
+		}
+		if sch.Catchup {
+			return Schedule{}, fmt.Errorf("%w: catchup is day grain only (use a backfill for months)", ErrInvalid)
+		}
+	default:
+		return Schedule{}, fmt.Errorf("%w: partition_grain must be day or month", ErrInvalid)
+	}
+	if len(sch.RefetchAfterDays) > 4 {
+		return Schedule{}, fmt.Errorf("%w: at most 4 refetch_after_days", ErrInvalid)
+	}
+	for _, d := range sch.RefetchAfterDays {
+		if d < 1 || d > 400 {
+			return Schedule{}, fmt.Errorf("%w: refetch_after_days must be 1..400", ErrInvalid)
+		}
+	}
+	if sch.RefetchAfterDays == nil {
+		sch.RefetchAfterDays = []int{}
+	}
 	if sch.StartPartition != nil {
 		if _, _, err := domain.DailyInterval(*sch.StartPartition, "UTC"); err != nil {
 			return Schedule{}, fmt.Errorf("%w: %v", ErrInvalid, err)
@@ -73,11 +119,14 @@ func (s *Store) SetSchedule(ctx context.Context, sch Schedule) (Schedule, error)
 		return Schedule{}, fmt.Errorf("pipeline %q: %w", sch.PipelineName, ErrNotFound)
 	}
 	if _, err := s.pool.Exec(ctx, `
-		INSERT INTO schedules (pipeline_name, cron, tz, partition_offset_days, catchup, start_partition, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO schedules (pipeline_name, cron, tz, partition_offset_days, catchup, start_partition, enabled,
+		                       partition_grain, partition_offset_months, refetch_after_days)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (pipeline_name) DO UPDATE SET cron = $2, tz = $3, partition_offset_days = $4, catchup = $5,
-		       start_partition = $6, enabled = $7, updated_at = now()`,
-		sch.PipelineName, sch.Cron, sch.TZ, sch.PartitionOffsetDays, sch.Catchup, sch.StartPartition, sch.Enabled); err != nil {
+		       start_partition = $6, enabled = $7, partition_grain = $8, partition_offset_months = $9,
+		       refetch_after_days = $10, updated_at = now()`,
+		sch.PipelineName, sch.Cron, sch.TZ, sch.PartitionOffsetDays, sch.Catchup, sch.StartPartition, sch.Enabled,
+		sch.grain(), sch.PartitionOffsetMonths, sch.RefetchAfterDays); err != nil {
 		return Schedule{}, err
 	}
 	return s.GetSchedule(ctx, sch.PipelineName)
@@ -86,9 +135,11 @@ func (s *Store) SetSchedule(ctx context.Context, sch Schedule) (Schedule, error)
 func (s *Store) GetSchedule(ctx context.Context, pipeline string) (Schedule, error) {
 	var sch Schedule
 	err := s.pool.QueryRow(ctx, `
-		SELECT pipeline_name, cron, tz, partition_offset_days, catchup, start_partition, enabled, cursor
+		SELECT pipeline_name, cron, tz, partition_offset_days, catchup, start_partition, enabled, cursor,
+		       partition_grain, partition_offset_months, refetch_after_days
 		FROM schedules WHERE pipeline_name = $1`, pipeline).Scan(&sch.PipelineName, &sch.Cron, &sch.TZ,
-		&sch.PartitionOffsetDays, &sch.Catchup, &sch.StartPartition, &sch.Enabled, &sch.Cursor)
+		&sch.PartitionOffsetDays, &sch.Catchup, &sch.StartPartition, &sch.Enabled, &sch.Cursor,
+		&sch.PartitionGrain, &sch.PartitionOffsetMonths, &sch.RefetchAfterDays)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Schedule{}, fmt.Errorf("schedule %q: %w", pipeline, ErrNotFound)
 	}
@@ -111,7 +162,8 @@ func (s *Store) TickSchedules(ctx context.Context) (int, error) {
 	// schedule another tick is handling alone. NO KEY UPDATE: doesn't conflict
 	// with key-share locks.
 	rows, err := tx.Query(ctx, `
-		SELECT pipeline_name, cron, tz, partition_offset_days, catchup, start_partition, cursor
+		SELECT pipeline_name, cron, tz, partition_offset_days, catchup, start_partition, cursor,
+		       partition_grain, partition_offset_months, refetch_after_days
 		FROM schedules WHERE enabled ORDER BY pipeline_name FOR NO KEY UPDATE SKIP LOCKED`)
 	if err != nil {
 		return 0, err
@@ -120,7 +172,8 @@ func (s *Store) TickSchedules(ctx context.Context) (int, error) {
 	for rows.Next() {
 		var sch Schedule
 		if err := rows.Scan(&sch.PipelineName, &sch.Cron, &sch.TZ, &sch.PartitionOffsetDays, &sch.Catchup,
-			&sch.StartPartition, &sch.Cursor); err != nil {
+			&sch.StartPartition, &sch.Cursor, &sch.PartitionGrain, &sch.PartitionOffsetMonths,
+			&sch.RefetchAfterDays); err != nil {
 			rows.Close()
 			return 0, err
 		}
@@ -139,22 +192,19 @@ func (s *Store) TickSchedules(ctx context.Context) (int, error) {
 		}
 		loc, _ := time.LoadLocation(sch.TZ)
 		for _, fire := range fires {
-			partition := domain.PartitionFor(fire, loc, sch.PartitionOffsetDays)
-			if sch.StartPartition != nil && partition < *sch.StartPartition {
-				continue
+			for _, sub := range submissionsFor(sch, fire, loc) {
+				if sch.StartPartition != nil && sub.PartitionKey < *sch.StartPartition {
+					continue
+				}
+				_, _, err := s.SubmitRun(ctx, sub)
+				if err != nil && !errors.Is(err, ErrActiveRunExists) {
+					return submitted, fmt.Errorf("schedule %s partition %s: %w", sch.PipelineName, sub.PartitionKey, err)
+				}
+				// ErrActiveRunExists: another run (manual, backfill) holds the
+				// partition right now; it is being built, which is what the
+				// schedule wanted. Not submitted again later.
+				submitted++
 			}
-			_, _, err := s.SubmitRun(ctx, SubmitRequest{
-				IdempotencyKey: "schedule:" + sch.PipelineName + ":" + partition,
-				PipelineName:   sch.PipelineName, PartitionKey: partition,
-				Trigger: "schedule", PriorityClass: "live",
-			})
-			if err != nil && !errors.Is(err, ErrActiveRunExists) {
-				return submitted, fmt.Errorf("schedule %s partition %s: %w", sch.PipelineName, partition, err)
-			}
-			// ErrActiveRunExists: another run (manual, backfill) holds the
-			// partition right now; it is being built, which is what the
-			// schedule wanted. Not submitted again later.
-			submitted++
 		}
 		// Advance only after every submission above committed (crash-safety, see header).
 		if _, err := tx.Exec(ctx, `UPDATE schedules SET cursor = $2, updated_at = now() WHERE pipeline_name = $1`,
@@ -163,6 +213,28 @@ func (s *Store) TickSchedules(ctx context.Context) (int, error) {
 		}
 	}
 	return submitted, tx.Commit(ctx)
+}
+
+// submissionsFor lists what one fire submits: the primary partition, then one
+// re-fetch per refetch_after_days value. Keys are deterministic (see header).
+func submissionsFor(sch Schedule, fire time.Time, loc *time.Location) []SubmitRequest {
+	var out []SubmitRequest
+	if sch.grain() == "month" {
+		p := domain.MonthPartitionFor(fire, loc, sch.PartitionOffsetMonths)
+		out = append(out, SubmitRequest{
+			IdempotencyKey: "schedule:" + sch.PipelineName + ":" + p + ":" + fire.In(loc).Format("2006-01-02"),
+			PipelineName:   sch.PipelineName, PartitionKey: p, Trigger: "schedule", PriorityClass: "live"})
+	} else {
+		p := domain.PartitionFor(fire, loc, sch.PartitionOffsetDays)
+		out = append(out, SubmitRequest{IdempotencyKey: "schedule:" + sch.PipelineName + ":" + p,
+			PipelineName: sch.PipelineName, PartitionKey: p, Trigger: "schedule", PriorityClass: "live"})
+	}
+	for _, d := range sch.RefetchAfterDays {
+		p := domain.RefetchPartition(fire, loc, sch.grain(), d)
+		out = append(out, SubmitRequest{IdempotencyKey: fmt.Sprintf("refetch:%s:%s:%d", sch.PipelineName, p, d),
+			PipelineName: sch.PipelineName, PartitionKey: p, Trigger: "refetch", PriorityClass: "backfill"})
+	}
+	return out
 }
 
 // dueFires returns the fire times a tick must submit, oldest first.
@@ -202,6 +274,7 @@ type BackfillRequest struct {
 	FromPartition     string `json:"from_partition"`
 	ToPartition       string `json:"to_partition"`
 	MaxConcurrentRuns int    `json:"max_concurrent_runs"`
+	PartitionGrain    string `json:"partition_grain,omitempty"` // "" = day; month steps a month (E6)
 }
 
 type Backfill struct {
@@ -211,6 +284,7 @@ type Backfill struct {
 	ToPartition       string     `json:"to_partition"`
 	NextPartition     string     `json:"next_partition"`
 	MaxConcurrentRuns int        `json:"max_concurrent_runs"`
+	PartitionGrain    string     `json:"partition_grain"`
 	Status            string     `json:"status"`
 	CreatedAt         time.Time  `json:"created_at"`
 	FinishedAt        *time.Time `json:"finished_at,omitempty"`
@@ -232,6 +306,17 @@ func (s *Store) CreateBackfill(ctx context.Context, req BackfillRequest) (Backfi
 	case req.MaxConcurrentRuns < 1 || req.MaxConcurrentRuns > 1000:
 		return Backfill{}, fmt.Errorf("%w: max_concurrent_runs must be 1..1000", ErrInvalid)
 	}
+	switch req.PartitionGrain {
+	case "":
+		req.PartitionGrain = "day"
+	case "day":
+	case "month":
+		if from.Day() != 1 || to.Day() != 1 {
+			return Backfill{}, fmt.Errorf("%w: month backfill from/to must be the first of a month", ErrInvalid)
+		}
+	default:
+		return Backfill{}, fmt.Errorf("%w: partition_grain must be day or month", ErrInvalid)
+	}
 	var exists bool
 	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pipelines WHERE name = $1)`, req.PipelineName).Scan(&exists); err != nil {
 		return Backfill{}, err
@@ -241,9 +326,10 @@ func (s *Store) CreateBackfill(ctx context.Context, req BackfillRequest) (Backfi
 	}
 	var id string
 	if err := s.pool.QueryRow(ctx, `
-		INSERT INTO backfills (pipeline_name, from_partition, to_partition, next_partition, max_concurrent_runs, status)
-		VALUES ($1, $2, $3, $2, $4, 'RUNNING') RETURNING id`,
-		req.PipelineName, req.FromPartition, req.ToPartition, req.MaxConcurrentRuns).Scan(&id); err != nil {
+		INSERT INTO backfills (pipeline_name, from_partition, to_partition, next_partition, max_concurrent_runs, status,
+		                       partition_grain)
+		VALUES ($1, $2, $3, $2, $4, 'RUNNING', $5) RETURNING id`,
+		req.PipelineName, req.FromPartition, req.ToPartition, req.MaxConcurrentRuns, req.PartitionGrain).Scan(&id); err != nil {
 		return Backfill{}, err
 	}
 	return s.GetBackfill(ctx, id)
@@ -256,13 +342,13 @@ func (s *Store) GetBackfill(ctx context.Context, id string) (Backfill, error) {
 	var b Backfill
 	err := s.pool.QueryRow(ctx, `
 		SELECT b.id, b.pipeline_name, b.from_partition, b.to_partition, b.next_partition, b.max_concurrent_runs,
-		       b.status, b.created_at, b.finished_at,
+		       b.partition_grain, b.status, b.created_at, b.finished_at,
 		       count(r.id), count(r.id) FILTER (WHERE r.status IN ('PENDING', 'RUNNING')),
 		       count(r.id) FILTER (WHERE r.status = 'SUCCEEDED'), count(r.id) FILTER (WHERE r.status = 'FAILED'),
 		       count(r.id) FILTER (WHERE r.status = 'CANCELED')
 		FROM backfills b LEFT JOIN workflow_runs r ON r.backfill_id = b.id
 		WHERE b.id = $1 GROUP BY b.id`, id).Scan(&b.ID, &b.PipelineName, &b.FromPartition, &b.ToPartition,
-		&b.NextPartition, &b.MaxConcurrentRuns, &b.Status, &b.CreatedAt, &b.FinishedAt,
+		&b.NextPartition, &b.MaxConcurrentRuns, &b.PartitionGrain, &b.Status, &b.CreatedAt, &b.FinishedAt,
 		&b.Runs.Total, &b.Runs.Active, &b.Runs.Succeeded, &b.Runs.Failed, &b.Runs.Canceled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Backfill{}, fmt.Errorf("backfill %s: %w", id, ErrNotFound)
@@ -282,20 +368,20 @@ func (s *Store) AdvanceBackfills(ctx context.Context) (int, error) {
 	// the backfill row by foreign key (KEY SHARE); FOR UPDATE would block them
 	// behind this very transaction.
 	rows, err := tx.Query(ctx, `
-		SELECT id, pipeline_name, to_partition, next_partition, max_concurrent_runs,
+		SELECT id, pipeline_name, to_partition, next_partition, max_concurrent_runs, partition_grain,
 		       (SELECT count(*) FROM workflow_runs r WHERE r.backfill_id = b.id AND r.status IN ('PENDING', 'RUNNING'))
 		FROM backfills b WHERE status = 'RUNNING' ORDER BY created_at FOR NO KEY UPDATE SKIP LOCKED`)
 	if err != nil {
 		return 0, err
 	}
 	type bf struct {
-		id, pipeline, to, next string
-		max, active            int
+		id, pipeline, to, next, grain string
+		max, active                   int
 	}
 	var list []bf
 	for rows.Next() {
 		var b bf
-		if err := rows.Scan(&b.id, &b.pipeline, &b.to, &b.next, &b.max, &b.active); err != nil {
+		if err := rows.Scan(&b.id, &b.pipeline, &b.to, &b.next, &b.max, &b.grain, &b.active); err != nil {
 			rows.Close()
 			return 0, err
 		}
@@ -319,7 +405,11 @@ func (s *Store) AdvanceBackfills(ctx context.Context) (int, error) {
 			submitted++
 			b.active++
 			d, _ := time.Parse("2006-01-02", b.next)
-			b.next = d.AddDate(0, 0, 1).Format("2006-01-02")
+			if b.grain == "month" {
+				b.next = d.AddDate(0, 1, 0).Format("2006-01-02")
+			} else {
+				b.next = d.AddDate(0, 0, 1).Format("2006-01-02")
+			}
 		}
 		status := "RUNNING"
 		if b.next > b.to && b.active == 0 {

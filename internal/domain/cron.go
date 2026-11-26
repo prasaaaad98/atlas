@@ -166,3 +166,28 @@ func (c Cron) Prev(at time.Time, loc *time.Location, window time.Duration) (time
 func PartitionFor(fire time.Time, loc *time.Location, offsetDays int) string {
 	return fire.In(loc).AddDate(0, 0, offsetDays).Format("2006-01-02")
 }
+
+// MonthPartitionFor maps a fire time to a month partition: the first day of the
+// month of the local fire date, shifted by offsetMonths (e.g. -2: a fire on
+// 10 Nov builds September, for a source that lags two months).
+func MonthPartitionFor(fire time.Time, loc *time.Location, offsetMonths int) string {
+	l := fire.In(loc)
+	return time.Date(l.Year(), l.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, offsetMonths, 0).Format("2006-01-02")
+}
+
+// RefetchPartition is the latest partition that ENDED at least afterDays days
+// before the local fire date. Submitted under a key that includes afterDays, a
+// partition is re-fetched once per afterDays value, on the first fire that is
+// late enough: day grain, afterDays 3, fire on the 26th -> the 22nd (ended at
+// the start of the 23rd). Month grain, afterDays 3: a fire on 3 Dec -> October
+// (November ended only 2 days earlier; October's key is a replay); from 4 Dec -> November.
+func RefetchPartition(fire time.Time, loc *time.Location, grain string, afterDays int) string {
+	l := fire.In(loc)
+	cutoff := time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -afterDays)
+	if grain == "month" {
+		// The month containing cutoff has not ended by cutoff (unless cutoff is its 1st, which is
+		// the previous month's end): the previous month is the latest that has.
+		return time.Date(cutoff.Year(), cutoff.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -1, 0).Format("2006-01-02")
+	}
+	return cutoff.AddDate(0, 0, -1).Format("2006-01-02")
+}

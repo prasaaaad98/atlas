@@ -270,3 +270,168 @@ func TestBackfillWaitsForAPartitionHeldByAnotherRun(t *testing.T) {
 		t.Fatalf("cancel backfill: %+v %v", cancelled, err)
 	}
 }
+
+// finishAll ends every active run, as if a worker had built it (E6 tests).
+func finishAll(t *testing.T, s *Store) {
+	t.Helper()
+	if _, err := s.pool.Exec(context.Background(),
+		`UPDATE workflow_runs SET status = 'SUCCEEDED' WHERE status IN ('PENDING', 'RUNNING')`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func refetchPartitions(t *testing.T, s *Store, pipeline string) map[string]int {
+	t.Helper()
+	rows, err := s.pool.Query(context.Background(), `SELECT partition_key, priority_class FROM workflow_runs
+		WHERE pipeline_name = $1 AND trigger = 'refetch'`, pipeline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var p, class string
+		_ = rows.Scan(&p, &class)
+		if class != "backfill" {
+			t.Errorf("re-fetch of %s has priority %s, want backfill (live runs first)", p, class)
+		}
+		out[p]++
+	}
+	return out
+}
+
+// E6: each old partition is re-fetched once per delay, only after it has been over
+// that long, and crash replays or overlapping ticks never add a second re-fetch.
+func TestRefetchSubmitsEachOldPartitionOncePerDelay(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	mustRegister(t, s, wideDef("eia_daily", 1, 1))
+	now := dbNow(t, s)
+	start := now.AddDate(0, 0, -40).Format("2006-01-02")
+	if _, err := s.SetSchedule(ctx, Schedule{PipelineName: "eia_daily", Cron: "0 6 * * *", TZ: "UTC", Catchup: true,
+		StartPartition: &start, PartitionOffsetDays: -1, RefetchAfterDays: []int{3, 30}, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	tick(t, s)
+	// Catchup: each re-fetch partition still had its first run active, so it was skipped
+	// (that first run happens >= d days late anyway). Finish them and replay the ticks.
+	if got := refetchPartitions(t, s, "eia_daily"); len(got) != 0 {
+		t.Fatalf("re-fetches while first runs active: %v", got)
+	}
+	// Replays compress 40 days of fires into one tick, so a partition's 3-day re-fetch can
+	// still be active when its 30-day one is due; in real time it finished weeks before.
+	// Workers finish runs between replays; each replay is a lost cursor plus 3 overlapping ticks.
+	for range 3 {
+		finishAll(t, s)
+		_, _ = s.pool.Exec(ctx, `UPDATE schedules SET cursor = NULL`)
+		var wg sync.WaitGroup
+		for range 3 {
+			wg.Add(1)
+			go func() { defer wg.Done(); _, _ = s.TickSchedules(ctx) }()
+		}
+		wg.Wait()
+	}
+	// Independent expectation: for each 06:00 UTC fire F since catchup began,
+	// F-4 (ended 3 days before F) and F-31 (ended 30 days before F), if >= start.
+	c, _ := domain.ParseCron("0 6 * * *")
+	from, _ := time.Parse("2006-01-02", start)
+	want := map[string]int{}
+	for _, f := range c.Between(from.AddDate(0, 0, 1).Add(-time.Minute), now, time.UTC, 1000) {
+		for _, back := range []int{4, 31} {
+			if p := f.AddDate(0, 0, -back).Format("2006-01-02"); p >= start {
+				want[p]++
+			}
+		}
+	}
+	got := refetchPartitions(t, s, "eia_daily")
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("re-fetch partitions (count per partition)\n got %v\nwant %v", got, want)
+	}
+	newest := now.AddDate(0, 0, -3).Format("2006-01-02")
+	for p := range got {
+		if p >= newest {
+			t.Errorf("partition %s re-fetched before it was 3 days old", p)
+		}
+	}
+}
+
+// E6: month grain. Each daily fire rebuilds the current month once; the offset in
+// months reaches a source that lags two months; validation rejects mixed offsets.
+func TestMonthGrainSchedule(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	mustRegister(t, s, wideDef("gas_monthly", 1, 1))
+	mustRegister(t, s, wideDef("storage_monthly", 1, 1))
+	if _, err := s.SetSchedule(ctx, Schedule{PipelineName: "gas_monthly", Cron: "0 * * * *", TZ: "UTC",
+		PartitionGrain: "month", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetSchedule(ctx, Schedule{PipelineName: "storage_monthly", Cron: "0 * * * *", TZ: "UTC",
+		PartitionGrain: "month", PartitionOffsetMonths: -2, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	tick(t, s)
+	now := dbNow(t, s)
+	c, _ := domain.ParseCron("0 * * * *")
+	last, _ := c.Prev(now, time.UTC, 2*time.Hour)
+	month := time.Date(last.Year(), last.Month(), 1, 0, 0, 0, 0, time.UTC)
+	if got := partitionsOf(t, s, "gas_monthly"); fmt.Sprint(got) != fmt.Sprint([]string{month.Format("2006-01-02")}) {
+		t.Fatalf("gas partitions %v, want the current month", got)
+	}
+	if got := partitionsOf(t, s, "storage_monthly"); fmt.Sprint(got) != fmt.Sprint([]string{month.AddDate(0, -2, 0).Format("2006-01-02")}) {
+		t.Fatalf("storage partitions %v, want two months back", got)
+	}
+	// The same fire replays (crash): still one run. Its key carries the fire's date.
+	finishAll(t, s)
+	_, _ = s.pool.Exec(ctx, `UPDATE schedules SET cursor = NULL`)
+	tick(t, s)
+	var runs int
+	var key string
+	_ = s.pool.QueryRow(ctx, `SELECT count(*), max(idempotency_key) FROM workflow_runs WHERE pipeline_name = 'gas_monthly'`).Scan(&runs, &key)
+	if runs != 1 || key != "schedule:gas_monthly:"+month.Format("2006-01-02")+":"+last.Format("2006-01-02") {
+		t.Fatalf("runs %d key %q", runs, key)
+	}
+	for _, bad := range []Schedule{
+		{PipelineName: "gas_monthly", Cron: "0 6 * * *", TZ: "UTC", PartitionGrain: "week"},
+		{PipelineName: "gas_monthly", Cron: "0 6 * * *", TZ: "UTC", PartitionGrain: "month", PartitionOffsetDays: 1},
+		{PipelineName: "gas_monthly", Cron: "0 6 * * *", TZ: "UTC", PartitionOffsetMonths: -1},
+		{PipelineName: "gas_monthly", Cron: "0 6 * * *", TZ: "UTC", PartitionGrain: "month", PartitionOffsetMonths: -25},
+		{PipelineName: "gas_monthly", Cron: "0 6 * * *", TZ: "UTC", RefetchAfterDays: []int{0}},
+		{PipelineName: "gas_monthly", Cron: "0 6 * * *", TZ: "UTC", RefetchAfterDays: []int{1, 2, 3, 4, 5}},
+	} {
+		if _, err := s.SetSchedule(ctx, bad); err == nil {
+			t.Errorf("%+v accepted", bad)
+		}
+	}
+}
+
+// E6: a month backfill submits one run per month start (never the days between),
+// and refuses from/to that are not month starts.
+func TestMonthBackfillStepsByMonth(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	mustRegister(t, s, wideDef("gas_monthly", 1, 1))
+	if _, err := s.CreateBackfill(ctx, BackfillRequest{PipelineName: "gas_monthly", FromPartition: "2025-11-15",
+		ToPartition: "2026-02-01", MaxConcurrentRuns: 2, PartitionGrain: "month"}); err == nil {
+		t.Fatal("mid-month from accepted")
+	}
+	b, err := s.CreateBackfill(ctx, BackfillRequest{PipelineName: "gas_monthly", FromPartition: "2025-11-01",
+		ToPartition: "2026-02-01", MaxConcurrentRuns: 2, PartitionGrain: "month"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		if _, err := s.AdvanceBackfills(ctx); err != nil {
+			t.Fatal(err)
+		}
+		finishAll(t, s)
+	}
+	_, _ = s.AdvanceBackfills(ctx)
+	want := []string{"2025-11-01", "2025-12-01", "2026-01-01", "2026-02-01"}
+	if got := partitionsOf(t, s, "gas_monthly"); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("partitions %v, want %v", got, want)
+	}
+	if got, _ := s.GetBackfill(ctx, b.ID); got.Status != "SUCCEEDED" || got.PartitionGrain != "month" {
+		t.Fatalf("backfill %s grain %s", got.Status, got.PartitionGrain)
+	}
+}

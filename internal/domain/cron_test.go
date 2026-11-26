@@ -95,3 +95,45 @@ func TestCronPrev(t *testing.T) {
 		t.Fatalf("Prev = %v %v", p, ok)
 	}
 }
+
+func TestMonthPartitionFor(t *testing.T) {
+	ny := mustLoc(t, "America/New_York")
+	for _, c := range []struct {
+		fire   time.Time
+		offset int
+		want   string
+	}{
+		{time.Date(2026, 11, 10, 11, 0, 0, 0, time.UTC), 0, "2026-11-01"},
+		{time.Date(2026, 11, 10, 11, 0, 0, 0, time.UTC), -2, "2026-09-01"},
+		{time.Date(2026, 1, 15, 11, 0, 0, 0, time.UTC), -2, "2025-11-01"}, // across a year
+		{time.Date(2026, 12, 1, 3, 0, 0, 0, time.UTC), 0, "2026-11-01"},   // still 30 Nov in New York
+	} {
+		if got := MonthPartitionFor(c.fire, ny, c.offset); got != c.want {
+			t.Errorf("MonthPartitionFor(%s, %d) = %s, want %s", c.fire, c.offset, got, c.want)
+		}
+	}
+}
+
+// A partition is re-fetched only once it has been over for afterDays days.
+func TestRefetchPartitionWaitsUntilThePartitionIsOldEnough(t *testing.T) {
+	utc := time.UTC
+	at := func(y int, m time.Month, d int) time.Time { return time.Date(y, m, d, 12, 0, 0, 0, utc) }
+	for _, c := range []struct {
+		fire  time.Time
+		grain string
+		after int
+		want  string
+	}{
+		{at(2026, 11, 26), "day", 3, "2026-11-22"},  // the 22nd ended at the start of the 23rd
+		{at(2026, 11, 26), "day", 30, "2026-10-26"}, // ended 27 Oct, 30 days before
+		{at(2026, 3, 2), "day", 3, "2026-02-26"},    // across a short month
+		{at(2026, 12, 3), "month", 3, "2026-10-01"}, // November ended only 2 days ago
+		{at(2026, 12, 4), "month", 3, "2026-11-01"},
+		{at(2027, 1, 30), "month", 30, "2026-11-01"}, // December ended 31 Jan - 1 day: not yet
+		{at(2027, 1, 31), "month", 30, "2026-12-01"},
+	} {
+		if got := RefetchPartition(c.fire, utc, c.grain, c.after); got != c.want {
+			t.Errorf("RefetchPartition(%s, %s, %d) = %s, want %s", c.fire.Format("2006-01-02"), c.grain, c.after, got, c.want)
+		}
+	}
+}
