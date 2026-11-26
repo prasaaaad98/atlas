@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 fixture-entsoe-fundamentals ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 demo-e3 demo-e4 demo-e5 demo-e6 e6-backfill e6-schedule demo-e7 gold-eia e7-charts demo-b6 demo-b4ab demo-b10 gold-entsoe entsoe-schedule ingest-entsoe-fundamentals ingest-eia ingest-eia-gas ingest-eia-storage
+	demo-b1 fixture-entsoe-a01 fixture-entsoe-fundamentals ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 demo-e3 demo-e4 demo-e5 demo-e6 e6-backfill e6-schedule demo-e7 gold-eia e7-charts demo-b6 demo-b4ab demo-b10 fixture-entsoe-balancing gold-entsoe entsoe-schedule ingest-entsoe-fundamentals ingest-eia ingest-eia-gas ingest-eia-storage
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -215,6 +215,12 @@ demo-b1:       ## offline: real ENTSO-E files through parser, checks and the pip
 
 ENTSOE_FUND_DAYS ?= 2026-11-18:normal 2026-03-29:spring_forward 2025-10-26:fall_back
 ENTSOE_FUND_DATA ?= load_actual load_forecast_da generation_actual wind_solar_forecast_da
+ENTSOE_BAL_DATA ?= reserves_daily imbalance_prices
+fixture-entsoe-balancing: ## OWNER-RUN (network, ENTSOE_TOKEN): reserve capacity + imbalance price fixtures, 3 zones x 3 days (B4c)
+	@for z in DE_LU ES SE3; do for dl in $(ENTSOE_FUND_DAYS); do for d in $(ENTSOE_BAL_DATA); do \
+	  $(ATLAS) fetch-fixture entsoe --zone $$z --date $${dl%%:*} --data $$d --label $${dl##*:}_$$d || true; \
+	done; done; done
+
 fixture-entsoe-fundamentals: ## OWNER-RUN (network, ENTSOE_TOKEN): load + generation fixtures, 3 zones x 3 days x 4 items (B4a/B4b)
 	@for z in DE_LU ES SE3; do for dl in $(ENTSOE_FUND_DAYS); do for d in $(ENTSOE_FUND_DATA); do \
 	  $(ATLAS) fetch-fixture entsoe --zone $$z --date $${dl%%:*} --data $$d --label $${dl##*:}_$$d || true; \

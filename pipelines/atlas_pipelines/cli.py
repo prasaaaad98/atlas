@@ -118,7 +118,8 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--zone", help="entsoe: zone code, e.g. ES")
     f.add_argument("--label", help="entsoe: file label, e.g. normal_A01")
     f.add_argument("--data", default="prices",
-                   choices=["prices", "load_actual", "load_forecast_da", "generation_actual", "wind_solar_forecast_da"],
+                   choices=["prices", "load_actual", "load_forecast_da", "generation_actual", "wind_solar_forecast_da",
+                            "reserves_daily", "imbalance_prices"],
                    help="entsoe: data item (prices = A44 day-ahead; others: sources/entsoe/requests.py)")
     f.add_argument("--date", required=True)
     f.add_argument("--out", default=str(config.REPO_ROOT / "pipelines" / "tests" / "fixtures"))
@@ -555,6 +556,11 @@ def fetch_fixture_entsoe(args, registry) -> int:
         print(f"not saved: {res.detail}")
         return 1
     out_dir.mkdir(parents=True, exist_ok=True)
+    if res.body[:2] == b"PK":  # ZIP answer (e.g. 17.1.B&C): saved unchanged, named by what it is
+        body_path = body_path.with_suffix(".zip")
+        if body_path.exists():
+            print(f"refusing to overwrite {body_path}")
+            return 1
     body_path.write_bytes(res.body)
     meta = {
         "source": "entsoe", "zone": args.zone, "date": day.isoformat(), "data": item, "url": res.url_redacted,

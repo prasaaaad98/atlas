@@ -33,6 +33,17 @@ def test_request_covers_the_local_delivery_day(day, hours):
     assert (end - start).total_seconds() == hours * 3600
 
 
+@pytest.mark.parametrize("zone", ["DE_LU", "ES", "SE3"])
+def test_balancing_requests_match_the_guide(zone):
+    eic = da.series_rule(M, zone).eic
+    r = er.request_params("reserves_daily", M, eic, date(2026, 11, 18))
+    assert (r["documentType"], r["businessType"], r["Type_MarketAgreement.Type"], r["controlArea_Domain"]) == \
+        ("A81", "B95", "A01", eic) and "processType" not in r  # every reserve product
+    i = er.request_params("imbalance_prices", M, eic, date(2026, 11, 18))
+    assert (i["documentType"], i["controlArea_Domain"]) == ("A85", eic) and set(i) == {
+        "documentType", "controlArea_Domain", "periodStart", "periodEnd"}
+
+
 def test_unknown_item_is_refused():
     with pytest.raises(ValueError):
         er.request_params("prices_intraday", M, EIC, date(2026, 11, 18))
