@@ -112,6 +112,9 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--location", help="openmeteo: <market>:<zone>")
     f.add_argument("--zone", help="entsoe: zone code, e.g. ES")
     f.add_argument("--label", help="entsoe: file label, e.g. normal_A01")
+    f.add_argument("--data", default="prices",
+                   choices=["prices", "load_actual", "load_forecast_da", "generation_actual", "wind_solar_forecast_da"],
+                   help="entsoe: data item (prices = A44 day-ahead; others: sources/entsoe/requests.py)")
     f.add_argument("--date", required=True)
     f.add_argument("--out", default=str(config.REPO_ROOT / "pipelines" / "tests" / "fixtures"))
     args = ap.parse_args(argv)
@@ -488,7 +491,14 @@ def fetch_fixture_entsoe(args, registry) -> int:
         print(f"refusing to overwrite {body_path}")
         return 1
     limiter = RateLimiter(load_limit("entsoe", config.REPO_ROOT / "config" / "limits").rpm)
-    params = {**da.request_params(market, args.zone, day), "securityToken": token}
+    item = getattr(args, "data", None) or "prices"
+    if item == "prices":
+        query = da.request_params(market, args.zone, day)
+    else:
+        from atlas_pipelines.sources.entsoe import requests as er
+
+        query = er.request_params(item, market, da.series_rule(market, args.zone).eic, day)
+    params = {**query, "securityToken": token}
     res = http_get(da.BASE_URL, params, limiter=limiter, secret_params=("securityToken",))
     print(f"{res.url_redacted} -> {res.status} {res.outcome} {res.error_class or ''}")
     if res.outcome == "unknown":
@@ -497,7 +507,7 @@ def fetch_fixture_entsoe(args, registry) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     body_path.write_bytes(res.body)
     meta = {
-        "source": "entsoe", "zone": args.zone, "date": day.isoformat(), "url": res.url_redacted,
+        "source": "entsoe", "zone": args.zone, "date": day.isoformat(), "data": item, "url": res.url_redacted,
         "http_status": res.status, "outcome": res.outcome, "fetched_at": iso_utc(datetime.now(timezone.utc)),
         "sha256": sha256_bytes(res.body), "bytes": len(res.body),
     }
