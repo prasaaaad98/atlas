@@ -23,6 +23,14 @@ schedules:
     catchup: true
     start: 2026-11-01
     refetch_after_days: [3, 30]
+  eia930_gold_daily:
+    why: gold from silver only (E7), after both ingests; re-built a day after each silver re-fetch (+4, +31) so revisions reach gold
+    cron: "0 10 * * *"
+    tz: UTC
+    offset_days: -1
+    catchup: true
+    start: 2026-11-01
+    refetch_after_days: [4, 31]
   eia_henry_hub_monthly:
     why: rebuilds the current (partial) trade month daily; re-fetches the finished month once 7 days after it ended
     cron: "0 9 * * *"

@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 demo-e3 demo-e4 demo-e5 demo-e6 e6-backfill e6-schedule ingest-eia ingest-eia-gas ingest-eia-storage
+	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 demo-e3 demo-e4 demo-e5 demo-e6 e6-backfill e6-schedule demo-e7 gold-eia e7-charts ingest-eia ingest-eia-gas ingest-eia-storage
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -154,6 +154,16 @@ ingest-eia:    ## OWNER-RUN (network, EIA_API_KEY): EIA-930 demand, interchange 
 	$(ATLAS) run eia930_region_daily --partition $(EIA_FROM) --to $(EIA_TO)
 	$(ATLAS) run eia930_fuel_daily --partition $(EIA_FROM) --to $(EIA_TO)
 	$(ATLAS) catalog
+
+gold-eia:      ## offline: build gold.fundamentals_hourly from the silver already in the lake, every BA, EIA_FROM..EIA_TO (after ingest-eia)
+	$(ATLAS) run eia930_gold_daily --partition $(EIA_FROM) --to $(EIA_TO)
+	$(ATLAS) catalog
+
+e7-charts:     ## offline: net-load duck curve per BA (weekday vs weekend) from current gold -> docs/walkthroughs/e7-net-load-<ba>.svg
+	$(PY) scripts/e7_charts.py --lake-root $(or $(LAKE_ROOT),lake) --out docs/walkthroughs
+
+demo-e7:       ## offline: real EIA responses -> silver -> gold fundamentals and storage buildout (definitions, gaps, rebuild hashes)
+	$(PY) -m pytest -v -c pipelines/pyproject.toml pipelines/tests/unit/test_gold_fundamentals.py
 
 GAS_FROM ?= 2022-04-01
 GAS_TO   ?= $(shell date -u +%Y-%m-01)

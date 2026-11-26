@@ -21,7 +21,11 @@ CONFIG = REPO / "config" / "schedules" / "eia.yaml"
 def test_every_scheduled_pipeline_exists_and_maps_to_the_engine_body():
     schedules = load_schedules(CONFIG)
     names = set(build_pipelines(load_registry(REPO / "config" / "markets")))
-    assert set(schedules) == {"eia930_region_daily", "eia930_fuel_daily", "eia_henry_hub_monthly", "eia_storage_monthly"}
+    assert set(schedules) == {"eia930_region_daily", "eia930_fuel_daily", "eia930_gold_daily", "eia_henry_hub_monthly",
+                              "eia_storage_monthly"}
+    # Gold re-builds one day after each silver re-fetch, so revised silver reaches gold.
+    silver_refetch = schedules["eia930_region_daily"]["refetch_after_days"]
+    assert schedules["eia930_gold_daily"]["refetch_after_days"] == [d + 1 for d in silver_refetch]
     assert set(schedules) <= names
     region = schedule_body(schedules["eia930_region_daily"])
     assert region["refetch_after_days"] == [3, 30] and region["partition_offset_days"] == -1
