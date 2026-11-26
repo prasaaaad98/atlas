@@ -219,9 +219,10 @@ def test_source_tasks_declare_their_limit_keys(registry):
             assert t["limit_key"] == "entsoe" and t["max_attempts"] == 36
             assert t["retry"] == {"initial_interval_seconds": 300, "backoff_coefficient": 1, "max_interval_seconds": 300}
         else:  # gold: local computation, no source budget; runs only after its zone's ingest
-            assert t["name"].startswith("spreads_") and "limit_key" not in t
-            assert t["deps"] == ["ingest_" + t["name"].removeprefix("spreads_")]
-    assert len(tasks) == 6
+            kind, zone = t["name"].split("_", 1)
+            assert kind in ("spreads", "profiles") and "limit_key" not in t
+            assert t["deps"] == ["ingest_" + zone]
+    assert len(tasks) == 9  # 3 zones x (ingest, daily spreads, block profiles)
     # Keys without a config file couldn't be registered with Atlas.
     assert (REPO / "config" / "limits" / "entsoe.yaml").exists()
     assert (REPO / "config" / "limits" / "openmeteo.yaml").exists()

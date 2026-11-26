@@ -51,7 +51,7 @@ from atlas_pipelines.core.markets import Market, iso_utc
 from atlas_pipelines.core.pipeline import Pipeline, TaskDef
 from atlas_pipelines.core.task import CheckResult, Materialization, RetryableTaskError, TaskContext
 from atlas_pipelines.sources.adapter import revision_check, write_bronze
-from atlas_pipelines.gold import spreads
+from atlas_pipelines.gold import block_profiles, spreads
 from atlas_pipelines.sources.entsoe import day_ahead as da
 from atlas_pipelines.validation import stats
 
@@ -216,12 +216,44 @@ def make_spreads_task(market: Market, zone: str, ingest: TaskDef) -> TaskDef:
     return TaskDef(f"spreads_{slug}", build, deps=(ingest.name,), asset_outputs=(f"gold.{gold_dataset}",))
 
 
+def make_profiles_task(market: Market, zone: str, ingest: TaskDef) -> TaskDef:
+    """gold.block_profiles__<market>_<zone>: hourly price shape of the day, from the same current,
+    hash-verified silver as daily_spreads (gold/block_profiles.py)."""
+    slug = zone.lower()
+    silver_asset = f"silver.power_prices__{market.id}_{slug}"
+    gold_dataset = f"block_profiles__{market.id}_{slug}"
+
+    def build(ctx: TaskContext):
+        local_date = date.fromisoformat(ctx.partition_key)
+        current = ctx.resolve_input(silver_asset, ctx.partition_key)
+        if current is None:  # as in spreads_<zone>: an inconsistent pointer store fails loudly
+            return [], [CheckResult("input_current", "blocking", False, {"asset": silver_asset})]
+        path = absolute_path(ctx.lake_root, current["uri"])
+        actual = sha256_file(path)
+        if actual != current["content_hash"]:
+            return [], [CheckResult("input_hash_matches_pointer", "blocking", False,
+                                    {"uri": current["uri"], "pointer": current["content_hash"], "file": actual})]
+        df, checks = block_profiles.compute(pl.read_parquet(path), local_date, len(market.intervals(da.PRODUCT, local_date)),
+                                            market.tz, current["uri"], current["content_hash"])
+        if df.is_empty():
+            return [], checks
+        file = attempt_dir(ctx.lake_root, "gold", gold_dataset, "date", ctx.partition_key, ctx.attempt_id) / "part-0.parquet"
+        write_parquet_atomic(df, file)
+        return [Materialization(asset_key=f"gold.{gold_dataset}", partition_key=ctx.partition_key,
+                                uri=relative_uri(ctx.lake_root, file), row_count=df.height,
+                                content_hash=sha256_file(file), schema_version="block_profiles-1",
+                                code_version=block_profiles.DEFINITION_VERSION)], checks
+
+    return TaskDef(f"profiles_{slug}", build, deps=(ingest.name,), asset_outputs=(f"gold.{gold_dataset}",))
+
+
 def price_pipelines(registry: dict[str, Market], **task_kwargs) -> list[Pipeline]:
     market = registry.get("entsoe")
     if market is None or "entsoe" not in (market.raw or {}):
         return []
     ingests = [make_task(market, z, **task_kwargs) for z in market.zones]
     golds = [make_spreads_task(market, z, t) for z, t in zip(market.zones, ingests)]
+    golds += [make_profiles_task(market, z, t) for z, t in zip(market.zones, ingests)]
     return [Pipeline(
         name="prices_entsoe_daily",
         partition_tz=market.timezone,

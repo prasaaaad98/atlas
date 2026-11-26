@@ -298,3 +298,24 @@ GENERATION_MIX: dict[str, tuple[pl.DataType, bool]] = {
     "missing_series": (pl.String, True),
     "generation_source_hash": (pl.String, False),
 }
+
+# gold.block_profiles (B7, owner-confirmed 2026-11-27): one row per local clock hour that occurs
+# on the delivery day (23/24/25); the fall-back repeated hour has hour_occurrence 2.
+BLOCK_PROFILES: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, False),
+    "local_date": (pl.Date, False),
+    "local_hour": (pl.Int8, False),
+    "hour_occurrence": (pl.Int8, False),      # 2 only for the repeated hour on a fall-back day
+    "hour_start_utc": (UTC, False),
+    "hour_end_utc": (UTC, False),
+    "interval_minutes": (pl.Int16, False),
+    "intervals": (pl.Int16, False),
+    "mean_price": (pl.Float64, False),        # mean of the interval prices inside the hour
+    "min_price": (pl.Float64, False),
+    "max_price": (pl.Float64, False),
+    "currency": (pl.String, False),
+    "source_uri": (pl.String, False),
+    "source_content_hash": (pl.String, False),
+    "definition_version": (pl.String, False),
+}
