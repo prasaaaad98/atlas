@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2026-03-08T00-08&end=2026-03-08T23-07&length=5000&facets%5Bfromba%5D%5B%5D=CISO&data%5B%5D=value",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-26T00:39:02+00:00",
+  "sha256": "e9da31f78d66d050b940eaed22242decbf2ee2bdbe0320928198228afa912d83",
+  "bytes": 51386,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

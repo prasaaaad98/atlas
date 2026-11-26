@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2025-03-09T00-05&end=2025-03-09T23-04&length=5000&facets%5Bfromba%5D%5B%5D=PJM&data%5B%5D=value",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-26T00:42:33+00:00",
+  "sha256": "c5ddf0c916d647f97c0ab6d9790c655e9e76a44d1d00778abf795191a854eb95",
+  "bytes": 32790,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

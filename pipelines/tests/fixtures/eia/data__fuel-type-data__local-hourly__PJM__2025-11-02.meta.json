@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=local-hourly&start=2025-11-02T00-04&end=2025-11-02T23-05&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-26T00:12:09+00:00",
+  "sha256": "bbe172d4dcccde05a3fc6e422493e0df16b229024ed4e9e0d53e6a162a8074b6",
+  "bytes": 35953,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

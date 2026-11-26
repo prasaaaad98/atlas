@@ -1,0 +1,773 @@
+{
+  "started_utc": "2026-11-25T23:35:53+00:00",
+  "files": [
+    {
+      "file": "key_placement_header.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto",
+      "bytes": 2190,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "key_placement_url.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto?api_key=REDACTED",
+      "bytes": 2190,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "meta__electricity_rto.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto",
+      "bytes": 2190,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "meta__electricity_rto_region-data.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data",
+      "bytes": 1107,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__region-data__hourly__CISO__2026-11-18.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=hourly&start=2026-11-18T00&end=2026-11-19T12&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 29289,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__region-data__hourly__CISO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=hourly&start=2025-03-09T00&end=2025-03-10T12&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 22825
+    },
+    {
+      "file": "data__region-data__hourly__CISO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=hourly&start=2025-11-02T00&end=2025-11-03T12&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 22621
+    },
+    {
+      "file": "data__region-data__hourly__CISO__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=hourly&start=2026-03-08T00&end=2026-03-09T12&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 22633,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__region-data__hourly__ERCO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=hourly&start=2025-03-09T00&end=2025-03-10T12&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 29948,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__region-data__hourly__ERCO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=hourly&start=2025-11-02T00&end=2025-11-03T12&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 29981,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__region-data__hourly__ERCO__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=hourly&start=2026-03-08T00&end=2026-03-09T12&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 29984
+    },
+    {
+      "file": "data__region-data__hourly__PJM__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=hourly&start=2025-03-09T00&end=2025-03-10T12&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 27034,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__region-data__hourly__PJM__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=hourly&start=2025-11-02T00&end=2025-11-03T12&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 17621,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__region-data__hourly__PJM__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=hourly&start=2026-03-08T00&end=2026-03-09T12&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 18723
+    },
+    {
+      "file": "data__region-data__local-hourly__CISO__2026-11-18.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=local-hourly&start=2026-11-18T00-08&end=2026-11-18T23-08&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 19496
+    },
+    {
+      "file": "data__region-data__local-hourly__CISO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=local-hourly&start=2025-03-09T00-08&end=2025-03-09T23-07&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 13946
+    },
+    {
+      "file": "data__region-data__local-hourly__CISO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=local-hourly&start=2025-11-02T00-07&end=2025-11-02T23-08&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 15118
+    },
+    {
+      "file": "data__region-data__local-hourly__CISO__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=local-hourly&start=2026-03-08T00-08&end=2026-03-08T23-07&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 13751
+    },
+    {
+      "file": "data__region-data__local-hourly__ERCO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=local-hourly&start=2025-03-09T00-06&end=2025-03-09T23-05&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 19114
+    },
+    {
+      "file": "data__region-data__local-hourly__ERCO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=local-hourly&start=2025-11-02T00-05&end=2025-11-02T23-06&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 20750
+    },
+    {
+      "file": "data__region-data__local-hourly__ERCO__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=local-hourly&start=2026-03-08T00-06&end=2026-03-08T23-05&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 19137
+    },
+    {
+      "file": "data__region-data__local-hourly__PJM__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=local-hourly&start=2025-03-09T00-05&end=2025-03-09T23-04&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 17303
+    },
+    {
+      "file": "data__region-data__local-hourly__PJM__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=local-hourly&start=2025-11-02T00-04&end=2025-11-02T23-05&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 9758
+    },
+    {
+      "file": "data__region-data__local-hourly__PJM__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=local-hourly&start=2026-03-08T00-05&end=2026-03-08T23-04&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 9235
+    },
+    {
+      "file": "meta__electricity_rto_fuel-type-data.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data",
+      "bytes": 1024,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__fuel-type-data__hourly__CISO__2026-11-18.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2026-11-18T00&end=2026-11-19T12&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 63397,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__fuel-type-data__hourly__CISO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2025-03-09T00&end=2025-03-10T12&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 56283
+    },
+    {
+      "file": "data__fuel-type-data__hourly__CISO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2025-11-02T00&end=2025-11-03T12&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 56256,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__fuel-type-data__hourly__CISO__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2026-03-08T00&end=2026-03-09T12&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 63370,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__fuel-type-data__hourly__ERCO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2025-03-09T00&end=2025-03-10T12&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 65714,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__fuel-type-data__hourly__ERCO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2025-11-02T00&end=2025-11-03T12&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 65697,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__fuel-type-data__hourly__ERCO__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2026-03-08T00&end=2026-03-09T12&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 58058,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__fuel-type-data__hourly__PJM__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2025-03-09T00&end=2025-03-10T12&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 52003
+    },
+    {
+      "file": "data__fuel-type-data__hourly__PJM__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2025-11-02T00&end=2025-11-03T12&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 50647
+    },
+    {
+      "file": "data__fuel-type-data__hourly__PJM__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2026-03-08T00&end=2026-03-09T12&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 52027
+    },
+    {
+      "file": "data__fuel-type-data__local-hourly__CISO__2026-11-18.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=local-hourly&start=2026-11-18T00-08&end=2026-11-18T23-08&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 41977
+    },
+    {
+      "file": "data__fuel-type-data__local-hourly__CISO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=local-hourly&start=2025-03-09T00-08&end=2025-03-09T23-07&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 35749
+    },
+    {
+      "file": "data__fuel-type-data__local-hourly__CISO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=local-hourly&start=2025-11-02T00-07&end=2025-11-02T23-08&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 38796
+    },
+    {
+      "file": "data__fuel-type-data__local-hourly__CISO__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=local-hourly&start=2026-03-08T00-08&end=2026-03-08T23-07&length=5000&facets%5Brespondent%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 40231
+    },
+    {
+      "file": "data__fuel-type-data__local-hourly__ERCO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=local-hourly&start=2025-03-09T00-06&end=2025-03-09T23-05&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 41696
+    },
+    {
+      "file": "data__fuel-type-data__local-hourly__ERCO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=local-hourly&start=2025-11-02T00-05&end=2025-11-02T23-06&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 45262
+    },
+    {
+      "file": "data__fuel-type-data__local-hourly__ERCO__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=local-hourly&start=2026-03-08T00-06&end=2026-03-08T23-05&length=5000&facets%5Brespondent%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 36865
+    },
+    {
+      "file": "data__fuel-type-data__local-hourly__PJM__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=local-hourly&start=2025-03-09T00-05&end=2025-03-09T23-04&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 33104
+    },
+    {
+      "file": "data__fuel-type-data__local-hourly__PJM__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=local-hourly&start=2025-11-02T00-04&end=2025-11-02T23-05&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 35953
+    },
+    {
+      "file": "data__fuel-type-data__local-hourly__PJM__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=local-hourly&start=2026-03-08T00-05&end=2026-03-08T23-04&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 33118
+    },
+    {
+      "file": "meta__electricity_rto_region-sub-ba-data.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/region-sub-ba-data",
+      "bytes": 979,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "meta__electricity_rto_interchange-data.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data",
+      "bytes": 1061,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__interchange-data__hourly__CISO__2026-11-18.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=hourly&start=2026-11-18T00&end=2026-11-19T12&length=5000&facets%5Bfromba%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 84762,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__interchange-data__hourly__CISO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=hourly&start=2025-03-09T00&end=2025-03-10T12&length=5000&facets%5Bfromba%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 84674,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__interchange-data__hourly__CISO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=hourly&start=2025-11-02T00&end=2025-11-03T12&length=5000&facets%5Bfromba%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 84774
+    },
+    {
+      "file": "data__interchange-data__hourly__CISO__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=hourly&start=2026-03-08T00&end=2026-03-09T12&length=5000&facets%5Bfromba%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 82567
+    },
+    {
+      "file": "data__interchange-data__hourly__ERCO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=hourly&start=2025-03-09T00&end=2025-03-10T12&length=5000&facets%5Bfromba%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 15553,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__interchange-data__hourly__ERCO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=hourly&start=2025-11-02T00&end=2025-11-03T12&length=5000&facets%5Bfromba%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 15573
+    },
+    {
+      "file": "data__interchange-data__hourly__ERCO__2026-03-08.json",
+      "http_status": 504,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=hourly&start=2026-03-08T00&end=2026-03-09T12&length=5000&facets%5Bfromba%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 278
+    },
+    {
+      "file": "data__interchange-data__hourly__PJM__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=hourly&start=2025-03-09T00&end=2025-03-10T12&length=5000&facets%5Bfromba%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 51607
+    },
+    {
+      "file": "data__interchange-data__hourly__PJM__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=hourly&start=2025-11-02T00&end=2025-11-03T12&length=5000&facets%5Bfromba%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 16156
+    },
+    {
+      "file": "data__interchange-data__hourly__PJM__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=hourly&start=2026-03-08T00&end=2026-03-09T12&length=5000&facets%5Bfromba%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 18747
+    },
+    {
+      "file": "data__interchange-data__local-hourly__CISO__2026-11-18.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2026-11-18T00-08&end=2026-11-18T23-08&length=5000&facets%5Bfromba%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 55957
+    },
+    {
+      "file": "data__interchange-data__local-hourly__CISO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2025-03-09T00-08&end=2025-03-09T23-07&length=5000&facets%5Bfromba%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 53597
+    },
+    {
+      "file": "data__interchange-data__local-hourly__CISO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2025-11-02T00-07&end=2025-11-02T23-08&length=5000&facets%5Bfromba%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 58287
+    },
+    {
+      "file": "data__interchange-data__local-hourly__CISO__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2026-03-08T00-08&end=2026-03-08T23-07&length=5000&facets%5Bfromba%5D%5B%5D=CISO&data%5B%5D=value",
+      "bytes": 51386
+    },
+    {
+      "file": "data__interchange-data__local-hourly__ERCO__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2025-03-09T00-06&end=2025-03-09T23-05&length=5000&facets%5Bfromba%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 10015
+    },
+    {
+      "file": "data__interchange-data__local-hourly__ERCO__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2025-11-02T00-05&end=2025-11-02T23-06&length=5000&facets%5Bfromba%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 10856
+    },
+    {
+      "file": "data__interchange-data__local-hourly__ERCO__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2026-03-08T00-06&end=2026-03-08T23-05&length=5000&facets%5Bfromba%5D%5B%5D=ERCO&data%5B%5D=value",
+      "bytes": 10053
+    },
+    {
+      "file": "data__interchange-data__local-hourly__PJM__2025-03-09.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2025-03-09T00-05&end=2025-03-09T23-04&length=5000&facets%5Bfromba%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 32790
+    },
+    {
+      "file": "data__interchange-data__local-hourly__PJM__2025-11-02.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2025-11-02T00-04&end=2025-11-02T23-05&length=5000&facets%5Bfromba%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 1737
+    },
+    {
+      "file": "data__interchange-data__local-hourly__PJM__2026-03-08.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/interchange-data/data?frequency=local-hourly&start=2026-03-08T00-05&end=2026-03-08T23-04&length=5000&facets%5Bfromba%5D%5B%5D=PJM&data%5B%5D=value",
+      "bytes": 1740
+    },
+    {
+      "file": "meta__electricity_rto_daily-region-data.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/daily-region-data",
+      "bytes": 956,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "meta__electricity_rto_daily-region-sub-ba-data.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/daily-region-sub-ba-data",
+      "bytes": 828,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "meta__electricity_rto_daily-fuel-type-data.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/daily-fuel-type-data",
+      "bytes": 873,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "meta__electricity_rto_daily-interchange-data.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/daily-interchange-data",
+      "bytes": 912,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "page__fuel-type-data__CISO__2026-11-18__offset00000.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2026-11-18T00&end=2026-11-19T12&length=100&offset=0&facets%5Brespondent%5D%5B%5D=CISO&sort%5B0%5D%5Bcolumn%5D=period&sort%5B0%5D%5Bdirection%5D=asc&data%5B%5D=value",
+      "bytes": 19658,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "page__fuel-type-data__CISO__2026-11-18__offset00100.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2026-11-18T00&end=2026-11-19T12&length=100&offset=100&facets%5Brespondent%5D%5B%5D=CISO&sort%5B0%5D%5Bcolumn%5D=period&sort%5B0%5D%5Bdirection%5D=asc&data%5B%5D=value",
+      "bytes": 19685,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "page__fuel-type-data__CISO__2026-11-18__offset00200.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2026-11-18T00&end=2026-11-19T12&length=100&offset=200&facets%5Brespondent%5D%5B%5D=CISO&sort%5B0%5D%5Bcolumn%5D=period&sort%5B0%5D%5Bdirection%5D=asc&data%5B%5D=value",
+      "bytes": 19679
+    },
+    {
+      "file": "page__fuel-type-data__CISO__2026-11-18__offset00300.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2026-11-18T00&end=2026-11-19T12&length=100&offset=300&facets%5Brespondent%5D%5B%5D=CISO&sort%5B0%5D%5Bcolumn%5D=period&sort%5B0%5D%5Bdirection%5D=asc&data%5B%5D=value",
+      "bytes": 7016
+    },
+    {
+      "file": "meta__natural-gas_pri.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/natural-gas/pri",
+      "bytes": 2319,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "meta__natural-gas_pri_sum.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/natural-gas/pri/sum",
+      "bytes": 699,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "facet__natural-gas_pri_sum__series.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/natural-gas/pri/sum/facet/series",
+      "bytes": 46817
+    },
+    {
+      "file": "meta__natural-gas_pri_fut.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/natural-gas/pri/fut",
+      "bytes": 897,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "facet__natural-gas_pri_fut__series.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/natural-gas/pri/fut/facet/series",
+      "bytes": 581,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "meta__natural-gas_pri_rescom.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/natural-gas/pri/rescom",
+      "bytes": 702,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "facet__natural-gas_pri_rescom__series.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/natural-gas/pri/rescom/facet/series",
+      "bytes": 2660
+    },
+    {
+      "file": "data__natural-gas_pri_fut__RNGWHHD__daily.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/natural-gas/pri/fut/data?frequency=daily&start=2026-10-01&end=2026-11-25&length=5000&facets%5Bseries%5D%5B%5D=RNGWHHD&data%5B%5D=value",
+      "bytes": 11305,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "meta__electricity_operating-generator-capacity.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity",
+      "bytes": 1940,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "facet__electricity_operating-generator-capacity__technology.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity/facet/technology",
+      "bytes": 1076,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "facet__electricity_operating-generator-capacity__energy_source_code.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity/facet/energy_source_code",
+      "bytes": 2827,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "facet__electricity_operating-generator-capacity__prime_mover_code.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity/facet/prime_mover_code",
+      "bytes": 419,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "facet__electricity_operating-generator-capacity__status.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity/facet/status",
+      "bytes": 493,
+      "skipped": "exists (200)"
+    },
+    {
+      "file": "data__electricity_operating-generator-capacity__energy_source_code_MWH__monthly.json",
+      "http_status": 200,
+      "url": "https://api.eia.gov/v2/electricity/operating-generator-capacity/data?frequency=monthly&start=2026-06&length=500&facets%5Benergy_source_code%5D%5B%5D=MWH&sort%5B0%5D%5Bcolumn%5D=period&sort%5B0%5D%5Bdirection%5D=desc&data%5B%5D=nameplate-capacity-mw&data%5B%5D=net-summer-capacity-mw&data%5B%5D=net-winter-capacity-mw&data%5B%5D=operating-year-month&data%5B%5D=planned-retirement-year-month&data%5B%5D=planned-derate-year-month&data%5B%5D=planned-derate-summer-cap-mw&data%5B%5D=planned-uprate-year-month&data%5B%5D=planned-uprate-summer-cap-mw&data%5B%5D=county&data%5B%5D=longitude&data%5B%5D=latitude",
+      "bytes": 548769,
+      "skipped": "exists (200)"
+    }
+  ],
+  "notes": [],
+  "key_placement": {
+    "header_X-Api-Key": 200,
+    "url_api_key": 200,
+    "use": "header"
+  },
+  "rto_routes": {
+    "region-data": {
+      "frequencies": [
+        "hourly",
+        "local-hourly"
+      ],
+      "facets": [
+        "respondent",
+        "type"
+      ],
+      "data": [
+        "value"
+      ],
+      "ba_facet": "respondent"
+    },
+    "fuel-type-data": {
+      "frequencies": [
+        "hourly",
+        "local-hourly"
+      ],
+      "facets": [
+        "respondent",
+        "fueltype"
+      ],
+      "data": [
+        "value"
+      ],
+      "ba_facet": "respondent"
+    },
+    "region-sub-ba-data": {
+      "frequencies": [
+        "hourly",
+        "local-hourly"
+      ],
+      "facets": [
+        "subba",
+        "parent"
+      ],
+      "data": [
+        "value"
+      ]
+    },
+    "interchange-data": {
+      "frequencies": [
+        "hourly",
+        "local-hourly"
+      ],
+      "facets": [
+        "fromba",
+        "toba"
+      ],
+      "data": [
+        "value"
+      ],
+      "ba_facet": "fromba"
+    },
+    "daily-region-data": {
+      "frequencies": [
+        "daily"
+      ],
+      "facets": [
+        "respondent",
+        "type",
+        "timezone"
+      ],
+      "data": [
+        "value"
+      ],
+      "ba_facet": "respondent"
+    },
+    "daily-region-sub-ba-data": {
+      "frequencies": [
+        "daily"
+      ],
+      "facets": [
+        "subba",
+        "parent",
+        "timezone"
+      ],
+      "data": [
+        "value"
+      ]
+    },
+    "daily-fuel-type-data": {
+      "frequencies": [
+        "daily"
+      ],
+      "facets": [
+        "respondent",
+        "fueltype",
+        "timezone"
+      ],
+      "data": [
+        "value"
+      ],
+      "ba_facet": "respondent"
+    },
+    "daily-interchange-data": {
+      "frequencies": [
+        "daily"
+      ],
+      "facets": [
+        "fromba",
+        "toba",
+        "timezone"
+      ],
+      "data": [
+        "value"
+      ],
+      "ba_facet": "fromba"
+    }
+  },
+  "henry_hub_series": [
+    {
+      "route": "natural-gas/pri/fut",
+      "series": "RNGWHHD",
+      "name": "Henry Hub Natural Gas Spot Price (Dollars per Million Btu)",
+      "frequencies": [
+        "monthly",
+        "weekly",
+        "annual",
+        "daily"
+      ]
+    }
+  ],
+  "storage": {
+    "facets": [
+      "stateid",
+      "sector",
+      "entityid",
+      "plantid",
+      "generatorid",
+      "unit",
+      "technology",
+      "energy_source_code",
+      "prime_mover_code",
+      "balancing_authority_code",
+      "status"
+    ],
+    "frequencies": [
+      "monthly"
+    ],
+    "data": [
+      "nameplate-capacity-mw",
+      "net-summer-capacity-mw",
+      "net-winter-capacity-mw",
+      "operating-year-month",
+      "planned-retirement-year-month",
+      "planned-derate-year-month",
+      "planned-derate-summer-cap-mw",
+      "planned-uprate-year-month",
+      "planned-uprate-summer-cap-mw",
+      "county",
+      "longitude",
+      "latitude"
+    ],
+    "matches": {
+      "technology": [],
+      "energy_source_code": [
+        {
+          "id": "MWH",
+          "name": "Electricity used for energy storage",
+          "alias": "(MWH) Electricity used for energy storage"
+        }
+      ],
+      "prime_mover_code": [],
+      "status": [],
+      "status_all": [
+        {
+          "id": "OP",
+          "name": "Operating"
+        },
+        {
+          "id": "OS",
+          "name": "Out of service and NOT expected to return to service in next calendar year"
+        },
+        {
+          "id": "SB",
+          "name": "Standby/Backup: available for service but not normally used"
+        },
+        {
+          "id": "OA",
+          "name": "Out of service but expected to return to service in next calendar year"
+        }
+      ]
+    }
+  },
+  "finished_utc": "2026-11-26T00:53:12+00:00"
+}

@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data?frequency=hourly&start=2026-11-18T00&end=2026-11-19T12&length=100&offset=300&facets%5Brespondent%5D%5B%5D=CISO&sort%5B0%5D%5Bcolumn%5D=period&sort%5B0%5D%5Bdirection%5D=asc&data%5B%5D=value",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-26T00:47:36+00:00",
+  "sha256": "f81ca447189ab181a1d40fbe125cad6fc611a939f1bec908da02c696ed3c5138",
+  "bytes": 7016,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}

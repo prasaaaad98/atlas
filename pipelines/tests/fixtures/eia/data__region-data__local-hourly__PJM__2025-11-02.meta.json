@@ -1,0 +1,10 @@
+{
+  "source": "eia",
+  "url": "https://api.eia.gov/v2/electricity/rto/region-data/data?frequency=local-hourly&start=2025-11-02T00-04&end=2025-11-02T23-05&length=5000&facets%5Brespondent%5D%5B%5D=PJM&data%5B%5D=value",
+  "http_status": 200,
+  "fetched_at_utc": "2026-11-25T23:52:37+00:00",
+  "sha256": "e58cfaf946cf2f29d976e4f9149c8d377f32364099a59b55ad46fc605f5de7a2",
+  "bytes": 9758,
+  "key_occurrences_redacted": 0,
+  "attribution": "Source: U.S. Energy Information Administration"
+}
