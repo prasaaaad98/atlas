@@ -354,6 +354,17 @@ def main() -> None:
     else:
         summary["notes"].append("no battery/storage facet value found; see facet__ files")
 
+    # 5. E5 golden: one COMPLETE report month of storage generators, exactly as the E5 task
+    # requests it (one page; ~4,500 rows < 5,000). The sample above stops at 500 rows.
+    print("5. storage inventory, one complete month (E5 golden)")
+    fetch(f"data__{route.replace('/', '_')}__storage__2026-09__full", f"{route}/data",
+          [("frequency", "monthly"), ("start", "2026-09"), ("end", "2026-09"), ("facets[energy_source_code][]", "MWH")]
+          + [("data[]", c) for c in ("nameplate-capacity-mw", "net-summer-capacity-mw", "net-winter-capacity-mw",
+                                     "operating-year-month", "planned-retirement-year-month")]
+          + [("sort[0][column]", "period"), ("sort[0][direction]", "asc"), ("sort[1][column]", "plantid"),
+             ("sort[1][direction]", "asc"), ("sort[2][column]", "generatorid"), ("sort[2][direction]", "asc"),
+             ("offset", "0"), ("length", "5000")])
+
     finish()
     print(f"done. key placement: {summary['key_placement']}; summary: {OUT / 'summary.json'}")
 

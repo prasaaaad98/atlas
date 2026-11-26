@@ -148,6 +148,34 @@ FUEL_CARBON_PRICES: dict[str, tuple[pl.DataType, bool]] = {
     "source_uri": (pl.String, False),
 }
 
+# silver.storage_capacity (EIA plan §4): one row per storage generator per report month,
+# as EIA's generator inventory lists it. zone = balancing authority (null when EIA gives
+# none). energy_mwh and expected_online_month: the API route has neither (always null
+# until a source that has them is added). Key (report_month, plant_id, generator_id).
+STORAGE_CAPACITY: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, True),
+    "state": (pl.String, True),
+    "report_month": (pl.Date, False),
+    "plant_id": (pl.String, False),
+    "generator_id": (pl.String, False),
+    "plant_name": (pl.String, True),
+    "entity_name": (pl.String, True),
+    "storage_type": (pl.String, False),
+    "status": (pl.String, False),
+    "source_status": (pl.String, False),
+    "source_prime_mover": (pl.String, False),
+    "capacity_mw": (pl.Float64, True),
+    "net_summer_mw": (pl.Float64, True),
+    "net_winter_mw": (pl.Float64, True),
+    "energy_mwh": (pl.Float64, True),
+    "operating_month": (pl.Date, True),
+    "planned_retirement_month": (pl.Date, True),
+    "expected_online_month": (pl.Date, True),
+    "fetched_at_utc": (UTC, False),
+    "source_uri": (pl.String, False),
+}
+
 # silver.interchange (EIA plan §4): net interchange per zone and interval.
 INTERCHANGE: dict[str, tuple[pl.DataType, bool]] = {
     "market": (pl.String, False),

@@ -1,0 +1,33 @@
+# EIA generator inventory → silver.storage_capacity (slice E5). Loaded by sources/eia/storage.py.
+# Route electricity/operating-generator-capacity ("Inventory of operable generators in the U.S.
+# Source: Forms EIA-860, EIA-860M"), monthly, filtered to energy_source_code MWH
+# ("Electricity used for energy storage"). Codes below are the ones EIA's own facets list
+# (owner's fixture run 2026-11-25: facet__electricity_operating-generator-capacity__*.json).
+# Scope: energy source MWH = batteries and flywheels. Pumped-storage hydro (prime mover PS,
+# energy source water) and compressed-air storage (natural gas) are NOT in this filter.
+version: 1
+route: electricity/operating-generator-capacity
+energy_source_code: MWH
+history_start: 2022-04-01
+
+# Every status the route's facet lists. An unknown code blocks (it would mean the route changed).
+# The route has NO planned/proposed statuses: planned projects are only in the EIA-860M
+# spreadsheet's "Planned" sheet (not ingested; PLAN_EIA_TRACK.md E5 open item).
+statuses:
+  OP: operating
+  SB: standby
+  OA: out_of_service_returning       # "Out of service but expected to return to service in next calendar year"
+  OS: out_of_service                 # "Out of service and NOT expected to return to service in next calendar year"
+
+# Prime movers seen with energy source MWH; an unknown one blocks until mapped here.
+prime_movers:
+  BA: battery                        # EIA technology "Batteries"
+  FW: flywheel                       # EIA technology "Flywheels"
+
+# Columns requested (data[]). EIA's route offers no energy (MWh) column.
+data_columns:
+  - nameplate-capacity-mw
+  - net-summer-capacity-mw
+  - net-winter-capacity-mw
+  - operating-year-month
+  - planned-retirement-year-month

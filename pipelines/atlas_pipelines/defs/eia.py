@@ -37,7 +37,7 @@ from atlas_pipelines.core.markets import Market, iso_utc
 from atlas_pipelines.core.pipeline import Pipeline, TaskDef
 from atlas_pipelines.core.task import CheckResult, Materialization, RetryableTaskError, TaskContext
 from atlas_pipelines.sources import fuels
-from atlas_pipelines.sources.eia import client, fuel, gas, region
+from atlas_pipelines.sources.eia import client, fuel, gas, region, storage
 
 KEY_ENV = "EIA_API_KEY"
 RETRY = {"initial_interval_seconds": 60, "backoff_coefficient": 2, "max_interval_seconds": 1800}
@@ -229,6 +229,43 @@ def make_gas_task(series_id: str, spec: dict, *, opener=None, now: Callable[[], 
                    max_attempts=8, limit_key="eia", retry=RETRY)
 
 
+def make_storage_task(market: Market, *, opener=None, now: Callable[[], datetime] = _utcnow,
+                      limiter: RateLimiter | None = None) -> TaskDef:
+    """E5: EIA generator inventory, storage only, one report month -> silver.storage_capacity__<market>."""
+    cfg = storage.load_config()  # fail at definition time on a bad config
+    ds = f"storage_capacity__{market.id}"
+
+    def ingest(ctx: TaskContext):
+        key = os.environ.get(KEY_ENV)
+        if not key:
+            raise RuntimeError(f"{KEY_ENV} is not set (put it in .env; never commit it)")
+        part = date.fromisoformat(ctx.partition_key)
+        try:
+            params = storage.request_params(cfg, part)
+        except ValueError as e:
+            return [], [CheckResult("partition_is_a_month", "blocking", False, {"error": str(e)})]
+        f = client.fetch(cfg["route"], params, key=key, limiter=limiter or _limiter(), sort=storage.KEY_COLUMNS,
+                         opener=opener)
+        fetched_at = now()
+        b = client.write_fetch(ctx, f, "generator_capacity__storage", fetched_at, storage.CODE_VERSION)
+        mats = [b.materialization]
+        # The route has no `value` column, so only the fetch-level checks apply (not values_*).
+        results = list(b.checks) + [c for c in client.checks(f, storage.KEY_COLUMNS)
+                                    if not c.check_name.startswith("values_")]
+        if f.outcome == "unknown" or f.error_class in ("rate_limited", "server_error"):
+            raise RetryableTaskError(f.error_class or "network", f"eia storage {ctx.partition_key}: {f.stopped}",
+                                     materializations=mats, checks=results)
+        if any(c.severity == "blocking" and not c.passed for c in results):
+            return mats, results
+        df, problems = storage.parse(f.rows, cfg, market.id, part, fetched_at, b.materialization.uri)
+        data_checks = storage.checks(df, f.rows, cfg, problems, part)
+        mats.append(_write(ctx, df, ds, "storage_capacity-1"))
+        return mats, results + data_checks
+
+    return TaskDef("ingest_storage", ingest, asset_outputs=("bronze.eia_generator_capacity__storage", f"silver.{ds}"),
+                   max_attempts=8, limit_key="eia", retry=RETRY)
+
+
 def eia_pipelines(registry: dict[str, Market], **task_kwargs) -> list[Pipeline]:
     market = registry.get("us_ba")
     if market is None or "eia" not in (market.raw or {}):
@@ -243,4 +280,6 @@ def eia_pipelines(registry: dict[str, Market], **task_kwargs) -> list[Pipeline]:
                      description="EIA-930 net generation by fuel per US BA (UTC days)"),
             Pipeline("eia_henry_hub_monthly", "UTC",
                      tuple(make_gas_task(sid, spec, **task_kwargs) for sid, spec in gas.load_series().items()),
-                     description="EIA Henry Hub daily spot price per trade month (partition = YYYY-MM-01)")]
+                     description="EIA Henry Hub daily spot price per trade month (partition = YYYY-MM-01)"),
+            Pipeline("eia_storage_monthly", "UTC", (make_storage_task(market, **task_kwargs),),
+                     description="EIA generator inventory, energy storage, per report month (partition = YYYY-MM-01)")]
