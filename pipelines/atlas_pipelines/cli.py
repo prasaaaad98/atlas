@@ -107,6 +107,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="long-poll seconds per claim, woken by LISTEN/NOTIFY (ADR-007); 0 = poll every 2 s")
     s = sub.add_parser("show")
     s.add_argument("asset_key")
+    rc = sub.add_parser("reconcile", help="B6: monthly silver aggregates vs the owner's official references")
+    rc.add_argument("market")
+    rc.add_argument("--month", required=True, help="YYYY-MM")
+    dq = sub.add_parser("dq-report", help="B6: daily data-quality report from run manifests")
+    dq.add_argument("--date", required=True, help="UTC day YYYY-MM-DD (runs finished that day)")
     f = sub.add_parser("fetch-fixture")
     f.add_argument("source", choices=["openmeteo", "entsoe"])
     f.add_argument("--location", help="openmeteo: <market>:<zone>")
@@ -129,6 +134,17 @@ def main(argv: list[str] | None = None) -> int:
                 rules = ", ".join(f"{r.minutes} min from {r.effective_from}" for r in p.intervals)
                 print(f"{m.id:<12} {code:<5} {p.canonical_market:<14} {m.timezone:<18} {m.currency}  {rules or 'intervals not confirmed'}")
         return 0
+
+    if args.cmd == "dq-report":
+        from atlas_pipelines.validation import report
+
+        path = report.write(lake, args.date)
+        print(path.read_text(encoding="utf-8"))
+        print(f"written: {path}")
+        return 0
+
+    if args.cmd == "reconcile":
+        return reconcile_command(args.market, args.month, lake)
 
     if args.cmd == "fetch-fixture":
         if args.source == "entsoe":
@@ -224,6 +240,40 @@ def main(argv: list[str] | None = None) -> int:
             print("  " + " | ".join(str(v) for v in row))
         return 0
     return 2
+
+
+def reconcile_command(market_id: str, month: str, lake: str) -> int:
+    """Every reference for `month` in config/reconciliation/<market>.yaml vs current local silver."""
+    from pathlib import Path
+
+    import polars as pl
+
+    from atlas_pipelines.core.manifest import read_pointer
+    from atlas_pipelines.validation import reconcile as rec
+
+    refs = [r for r in rec.load_references(market_id) if str(r["month"]) == month]
+    if not refs:
+        print(f"no references for {market_id} {month} in config/reconciliation/{market_id}.yaml "
+              "(the owner adds them from an official publication; see config/reconciliation/README.md)")
+        return 2
+    lines, code = [f"# Reconciliation {market_id} {month}", ""], 0
+    for ref in refs:
+        ref = {**ref, "month": month}
+        frames = {}
+        for d in rec.month_days(month):
+            ptr = read_pointer(lake, ref["asset"], d.isoformat())
+            if ptr:
+                frames[d] = pl.read_parquet(Path(lake) / ptr["uri"])
+        c = rec.reconcile(ref, frames)
+        code |= 0 if c.passed else 1
+        line = f"- {'PASS' if c.passed else 'FAIL'} {c.check_name}: {json.dumps(c.metrics, default=str)}"
+        lines.append(line)
+        print(line)
+    out = Path(lake) / "reports" / "reconciliation" / f"{market_id}_{month}.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"written: {out}")
+    return code
 
 
 def schedule_body(spec: dict) -> dict:
