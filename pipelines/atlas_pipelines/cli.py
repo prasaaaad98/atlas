@@ -77,11 +77,20 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--catchup", action="store_true")
     sc.add_argument("--start")
     sc.add_argument("--disable", action="store_true")
+    sc.add_argument("--grain", choices=["day", "month"], default="day",
+                    help="month: partition = first day of a month (E6)")
+    sc.add_argument("--offset-months", type=int, default=0, help="month grain: partition month = fire month + this")
+    sc.add_argument("--refetch-after", default="",
+                    help="comma-separated days, e.g. 3,30: re-fetch each partition once, that long after it ended")
+    sa = sub.add_parser("schedules", help="apply every schedule in a config/schedules/*.yaml file")
+    sa.add_argument("action", choices=["apply"])
+    sa.add_argument("file")
     bf = sub.add_parser("backfill")
     bf.add_argument("pipeline")
     bf.add_argument("--from", dest="from_", required=True)
     bf.add_argument("--to", required=True)
     bf.add_argument("--max-concurrent", type=int, default=4)
+    bf.add_argument("--grain", choices=["day", "month"], default="day")
     sr = sub.add_parser("schedule-report")
     sr.add_argument("pipeline")
     sr.add_argument("--since", help="YYYY-MM-DD (default: 30 days ago)")
@@ -152,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         return code
 
     if args.cmd in ("register", "submit", "worker", "limits", "cancel", "schedule", "backfill", "backfill-status",
-                    "schedule-report"):
+                    "schedule-report", "schedules"):
         return atlas_command(args, pipelines, lake)
 
     if args.cmd == "catalog":
@@ -205,6 +214,35 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
+def schedule_body(spec: dict) -> dict:
+    """One schedule spec (CLI flags or a config/schedules entry) -> the PUT /pipelines/{name}/schedule body."""
+    body = {"cron": spec["cron"], "tz": spec["tz"], "partition_offset_days": spec.get("offset_days", 0),
+            "catchup": bool(spec.get("catchup", False)), "enabled": spec.get("enabled", True),
+            "partition_grain": spec.get("grain", "day"), "partition_offset_months": spec.get("offset_months", 0),
+            "refetch_after_days": list(spec.get("refetch_after_days") or [])}
+    if spec.get("start"):
+        body["start_partition"] = str(spec["start"])
+    return body
+
+
+def load_schedules(path) -> dict[str, dict]:
+    """config/schedules/*.yaml: {version: 1, schedules: {<pipeline>: {cron, tz, ...}}}, checked before any call."""
+    from pathlib import Path
+
+    import yaml
+
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    if raw.get("version") != 1 or not isinstance(raw.get("schedules"), dict):
+        raise ValueError(f"{path}: needs version: 1 and a schedules mapping")
+    allowed = {"cron", "tz", "offset_days", "catchup", "start", "enabled", "grain", "offset_months",
+               "refetch_after_days", "why"}
+    for name, spec in raw["schedules"].items():
+        unknown = set(spec) - allowed
+        if unknown or "cron" not in spec or "tz" not in spec:
+            raise ValueError(f"{path}: schedule {name}: needs cron and tz; unknown keys {sorted(unknown)}")
+    return raw["schedules"]
+
+
 def atlas_command(args, pipelines, lake: str) -> int:
     """register / submit / worker against a running control plane."""
     import os
@@ -230,16 +268,31 @@ def atlas_command(args, pipelines, lake: str) -> int:
                 code |= 0 if status == 200 else 1
             return code
         if args.cmd == "schedule":
-            body = {"cron": args.cron, "tz": args.tz, "partition_offset_days": args.offset_days,
-                    "catchup": args.catchup, "enabled": not args.disable}
-            if args.start:
-                body["start_partition"] = args.start
+            body = schedule_body({"cron": args.cron, "tz": args.tz, "offset_days": args.offset_days,
+                                  "catchup": args.catchup, "start": args.start, "enabled": not args.disable,
+                                  "grain": args.grain, "offset_months": args.offset_months,
+                                  "refetch_after_days": [int(x) for x in args.refetch_after.split(",") if x.strip()]})
             status, out = client.call("PUT", f"/pipelines/{args.pipeline}/schedule", body)
             print(f"schedule {args.pipeline}: HTTP {status} {out}")
             return 0 if status == 200 else 1
+        if args.cmd == "schedules":
+            code = 0
+            for name, spec in load_schedules(args.file).items():
+                if name not in pipelines:
+                    print(f"unknown pipeline {name!r} in {args.file}")
+                    return 2
+                status, out = client.call("POST", "/pipelines", pipeline_definition(pipelines[name]))
+                if status not in (200, 201):
+                    print(f"register {name}: HTTP {status} {out}")
+                    return 1
+                status, out = client.call("PUT", f"/pipelines/{name}/schedule", schedule_body(spec))
+                print(f"schedule {name}: HTTP {status} {out if status != 200 else ''}".rstrip())
+                code |= 0 if status == 200 else 1
+            return code
         if args.cmd == "backfill":
             status, out = client.call("POST", "/backfills", {"pipeline": args.pipeline, "from_partition": args.from_,
-                                                            "to_partition": args.to, "max_concurrent_runs": args.max_concurrent})
+                                                            "to_partition": args.to, "max_concurrent_runs": args.max_concurrent,
+                                                            "partition_grain": args.grain})
             detail = "" if status == 201 else out
             print(f"backfill {args.pipeline}: HTTP {status} id={(out or {}).get('id')} {detail}")
             return 0 if status == 201 else 1

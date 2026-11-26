@@ -1,0 +1,38 @@
+# EIA schedules (slice E6). Applied with:
+#   python -m atlas_pipelines schedules apply config/schedules/eia.yaml   (registers each pipeline, then PUTs its schedule)
+# Times are our operating choices, not claims about when EIA publishes. Late data is
+# handled by the tasks (source_not_ready retries within the 48 h publication policy),
+# and revisions by re-fetching: refetch_after_days d re-runs each partition once, d days
+# after it ended (key refetch:<pipeline>:<partition>:<d>; priority backfill).
+# History before `start` comes from backfills (see docs/walkthroughs/e6.md).
+version: 1
+schedules:
+  eia930_region_daily:
+    why: EIA-930 demand/forecast/interchange for yesterday's UTC day; revised later, so +3 and +30 day re-fetches (plan E6)
+    cron: "0 8 * * *"
+    tz: UTC
+    offset_days: -1
+    catchup: true            # days missed while the machine was off are fetched on wake-up
+    start: 2026-11-01
+    refetch_after_days: [3, 30]
+  eia930_fuel_daily:
+    why: EIA-930 generation by fuel, same timing and re-fetch policy as region data
+    cron: "15 8 * * *"
+    tz: UTC
+    offset_days: -1
+    catchup: true
+    start: 2026-11-01
+    refetch_after_days: [3, 30]
+  eia_henry_hub_monthly:
+    why: rebuilds the current (partial) trade month daily; re-fetches the finished month once 7 days after it ended
+    cron: "0 9 * * *"
+    tz: UTC
+    grain: month
+    refetch_after_days: [7]
+  eia_storage_monthly:
+    why: the inventory lags ~2 months (route end 2026-09 on 2026-11-25); re-fetched 90 days after the month ended for 860M revisions
+    cron: "0 10 15 * *"
+    tz: UTC
+    grain: month
+    offset_months: -2
+    refetch_after_days: [90]

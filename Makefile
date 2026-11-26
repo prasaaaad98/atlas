@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 demo-e3 demo-e4 demo-e5 ingest-eia ingest-eia-gas ingest-eia-storage
+	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 demo-e3 demo-e4 demo-e5 demo-e6 e6-backfill e6-schedule ingest-eia ingest-eia-gas ingest-eia-storage
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -106,6 +106,18 @@ demo-b7:       ## offline: real ENTSO-E files through Atlas + workers (kill -9, 
 
 b7-backfill:   ## OWNER-RUN (network, ENTSOE_TOKEN): ENTSO-E history FROM..TO through Atlas (CHAOS=1 kills workers)
 	bash scripts/b7-backfill.sh
+
+demo-e6:       ## offline: re-fetch once per delay, month grain, month backfill (Go + Postgres), EIA schedule config
+	go test -count=1 -v -run 'TestRefetchSubmitsEachOldPartitionOncePerDelay|TestMonthGrainSchedule|TestMonthBackfillStepsByMonth|TestMonthPartitionFor|TestRefetchPartitionWaits' ./internal/...
+	$(PY) -m pytest -v -c pipelines/pyproject.toml pipelines/tests/unit/test_eia_schedules.py
+
+EIA_BF_PIPELINE ?= eia930_region_daily
+e6-backfill: up migrate ## OWNER-RUN (network, EIA_API_KEY): EIA history through Atlas (EIA_BF_PIPELINE, FROM, TO, GRAIN, CHAOS=1, BACKFILL=<id> resumes)
+	PIPELINE=$(EIA_BF_PIPELINE) PREFIXES=bronze.eia,silver.demand__us_ba,silver.interchange__us_ba,silver.generation__us_ba,silver.fuel_carbon_prices__henry_hub,silver.storage_capacity__us_ba bash scripts/atlas-backfill.sh
+
+e6-schedule: up migrate ## OWNER-RUN: register the EIA pipelines and apply config/schedules/eia.yaml to a running control plane
+	$(ATLAS) limits sync
+	$(ATLAS) schedules apply config/schedules/eia.yaml
 
 b7-schedule:   ## OWNER-RUN: leave running; daily 12:00 Brussels fetch of the next delivery day + uptime record
 	bash scripts/b7-schedule.sh
