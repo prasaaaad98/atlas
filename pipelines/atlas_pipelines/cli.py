@@ -154,9 +154,18 @@ def main(argv: list[str] | None = None) -> int:
         if last < first or (last - first).days > 366:
             print("--to must be on or after --partition, within 366 days")
             return 2
-        code, day = 0, first
+        code, day, down = 0, first, 0
         while day <= last:
-            code |= _run_one(pipelines[args.pipeline], day.isoformat(), lake)
+            rc, result = _run_one(pipelines[args.pipeline], day.isoformat(), lake)
+            code |= rc
+            reason = source_unreachable(result)
+            down = down + 1 if reason else 0
+            # A source that is down (or throttling us) fails every task the same way: stop instead
+            # of spending a full timeout per task per day. 429: at once (respect the source).
+            if reason == "rate_limited" or down >= UNREACHABLE_DAYS_TO_STOP:
+                print(f"stopped at {day}: the source is unreachable ({reason}) on {down} day(s) in a row; "
+                      f"nothing was published for them. Re-run later: --partition {day} --to {last}")
+                return 1
             day += timedelta(days=1)
         return code
 
@@ -399,11 +408,28 @@ def atlas_pointers(client) -> list[dict]:
     return out
 
 
-def _run_one(pipeline, partition: str, lake: str) -> int:
+UNREACHABLE_DAYS_TO_STOP = 2
+UNREACHABLE_CLASSES = ("network", "server_error", "rate_limited")
+
+
+def source_unreachable(result) -> str | None:
+    """The error class if NOTHING in the run succeeded and every task that ran failed
+    retryably because the source couldn't be reached (network, 5xx, 429); else None."""
+    ran = [t for t in result.tasks if t.status != "CANCELED"]
+    if not ran or any(t.status == "SUCCEEDED" for t in ran):
+        return None
+    classes = {t.error_class for t in ran}
+    if all(t.retryable for t in ran) and classes <= set(UNREACHABLE_CLASSES):
+        return "rate_limited" if "rate_limited" in classes else sorted(classes)[0]
+    return None
+
+
+def _run_one(pipeline, partition: str, lake: str):
     result = run_pipeline(pipeline, partition, lake)
     print(f"run {result.run_id} {partition}: {result.status}")
     for t in result.tasks:
-        retry = f" retryable (after {t.retry_after_s}s)" if t.retryable else ""
+        after = f" (after {t.retry_after_s:g}s)" if t.retry_after_s else ""
+        retry = f" retryable{after}" if t.retryable else ""
         print(f"  {t.task:<16} {t.status:<16} {t.error_class or ''}{retry}")
         for m in t.materializations:
             print(f"    {m['asset_key']}  rows={m['row_count']}  {m['content_hash'][:23]}...")
@@ -411,7 +437,7 @@ def _run_one(pipeline, partition: str, lake: str) -> int:
         for c in t.checks:
             print(f"    check {c['check_name']:<30} {c['severity']:<8} {'PASS' if c['passed'] else 'FAIL'}")
     print(f"manifest: {result.manifest_path}")
-    return 0 if result.status == "SUCCEEDED" else 1
+    return (0 if result.status == "SUCCEEDED" else 1), result
 
 
 def _load_dotenv(path, names) -> None:
