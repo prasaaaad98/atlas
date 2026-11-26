@@ -2,11 +2,13 @@
 
 Why it exists: fetches actual generation per production type (16.1.B&C, A75/A16) and the
 wind/solar day-ahead forecast (14.1.D, A69/A01), stores both raw documents in bronze and writes
-silver.generation__entsoe_<zone> (actuals + forecast vintages). Same retry rules as
-load_entsoe_daily (defs/entsoe_load.py): network/5xx/429 retried; "no matching data" or an
-incomplete series retried until the registry's late_after_hours_from_day_end, then blocking.
-Real ENTSO-E gaps exist (e.g. 2025-10-26 fall-back day, see the golden tests): such a day
-does not publish; nothing is filled.
+silver.generation__entsoe_<zone> (actuals + forecast vintages). Network/5xx/429 are retried.
+"No matching data" (a whole document absent) is retried until the registry's
+late_after_hours_from_day_end; after that, whatever was sent publishes and the absent required
+series are recorded. A series with a gap does NOT hold the day back (ADR-B10): it publishes
+with series_complete = false, missing intervals stay missing, and the scheduled re-fetch
+(config/schedules/entsoe.yaml) brings late intervals in as a new vintage. Real gaps exist
+(2025-10-26 fall-back day, see the golden tests).
 Who calls it: defs/__init__.py; tests inject `opener` and `now`.
 Data use: development, testing and internal research only (docs/data/sources/entsoe.md).
 """
@@ -36,7 +38,6 @@ from atlas_pipelines.sources.entsoe import load
 from atlas_pipelines.sources.entsoe import requests as er
 
 ITEM = {"actual": "generation_actual", "forecast": "wind_solar_forecast_da"}
-COMPLETENESS = ("series_day_complete", "series_for_zone")
 
 
 def _utcnow() -> datetime:
@@ -46,6 +47,7 @@ def _utcnow() -> datetime:
 def make_generation_task(market: Market, zone: str, *, opener=None, now: Callable[[], datetime] = _utcnow,
                          limiter: RateLimiter | None = None) -> TaskDef:
     sec = load_section(market)  # same publication policy and availability rule as load
+    gen.generation_section(market)  # fail at definition time on a bad required list
     mapping, _ = fuels.load_mapping("entsoe")  # fail at definition time on a bad mapping
     eic = da.series_rule(market, zone).eic
     slug = zone.lower()
@@ -90,17 +92,22 @@ def make_generation_task(market: Market, zone: str, *, opener=None, now: Callabl
             df, unknown = gen.build_silver(doc, kind, market, zone, day, fetched_at, b.materialization.uri, mapping,
                                            availability)
             cs = gen.checks(df, doc, kind, market, zone, day, unknown, mapping)
-            bad = [c.check_name for c in cs if c.severity == "blocking" and not c.passed]
-            if bad and set(bad) <= set(COMPLETENESS):
-                waiting.append(f"{kind}: incomplete series")
             results += [CheckResult(f"{c.check_name}_{kind}", c.severity, c.passed, c.metrics) for c in cs]
             frames.append(df)
         if waiting:
             if now() < deadline:
                 raise RetryableTaskError("source_not_ready", f"entsoe generation {zone} {ctx.partition_key}: {waiting}",
                                          retry_after_s=1800, materializations=mats, checks=results)
-            return mats, results + [CheckResult("generation_published", "blocking", False,
-                                                {"waiting": waiting, "deadline_utc": iso_utc(deadline)})]
+            # Past the deadline: publish what was sent; a document that never came is recorded,
+            # and its required series appear as absent (series-level blocking, ADR-B10).
+            sent = {k for k in ITEM if not any(w.startswith(f"{k}:") for w in waiting)}
+            results.append(CheckResult("generation_published", "blocking" if not sent else "warn", False,
+                                       {"waiting": waiting, "deadline_utc": iso_utc(deadline)}))
+            for kind in sorted(set(ITEM) - sent):
+                results += [CheckResult(f"{c.check_name}_{kind}", c.severity, c.passed, c.metrics)
+                            for c in gen.series_checks(gen.empty_frame(), kind, market, zone, day)]
+            if not sent:
+                return mats, results
         if any(c.severity == "blocking" and not c.passed for c in results):
             return mats, results
         cur = ctx.resolve_input(f"silver.{ds}", ctx.partition_key)
@@ -110,7 +117,7 @@ def make_generation_task(market: Market, zone: str, *, opener=None, now: Callabl
         out = attempt_dir(ctx.lake_root, "silver", ds, "date", ctx.partition_key, ctx.attempt_id) / "part-0.parquet"
         write_parquet_atomic(out_df, out)
         mats.append(Materialization(f"silver.{ds}", ctx.partition_key, relative_uri(ctx.lake_root, out), out_df.height,
-                                    sha256_file(out), "generation-2", gen.CODE_VERSION))
+                                    sha256_file(out), "generation-3", gen.CODE_VERSION))
         return mats, results
 
     return TaskDef(f"generation_{slug}", ingest,

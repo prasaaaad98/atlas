@@ -55,8 +55,9 @@ def raw_points(text):
     return out
 
 
-# Real gaps in ENTSO-E's own documents, both on the 2025-10-26 fall-back day (found 2026-11-26):
-# the day can't publish (missing stays missing); the test pins exactly what is missing.
+# Real gaps in ENTSO-E's own documents, both on the 2025-10-26 fall-back day (found 2026-11-26).
+# Per-series completeness (ADR-B10): the gappy series are flagged incomplete (missing stays
+# missing), every other series is complete, and no blocking check fails. Pinned exactly.
 REAL_GAPS = {
     # every series: two Periods, 22:00Z-00:30Z and 00:45Z-23:00Z → the 00:30Z quarter-hour is absent
     "ES_2025-10-26_fall_back_generation_actual": ("*", [datetime(2025, 10, 26, 0, 30, tzinfo=timezone.utc)]),
@@ -81,14 +82,19 @@ def test_real_document_parses_completely_and_exactly(path):
     df, cs = run(raw, zone, day, kind)
     if path.stem in REAL_GAPS:
         codes, gap = REAL_GAPS[path.stem]
-        assert failed(cs) == ["series_day_complete"]
+        assert failed(cs) == []
         gappy = set(df["series"]) if codes == "*" else set(codes)
+        flagged = {c.check_name.split(":", 1)[1] for c in cs if c.check_name.startswith("series_complete:") and not c.passed}
+        assert flagged == gappy
         for code in gappy:
             assert missing(df, code, zone, day) == gap, code
+            assert not df.filter(df["series"] == code)["series_complete"].any(), code
         others = set(df["series"]) - gappy
         assert all(missing(df, c, zone, day) == [] for c in others)
+        assert df.filter(df["series"].is_in(list(others)))["series_complete"].all()
     else:
         assert failed(cs) == [], [c for c in cs if not c.passed and c.severity == "blocking"]
+        assert df["series_complete"].all() and all(c.passed for c in cs if c.check_name.startswith("series_complete:"))
     pts = raw_points(raw.decode())
     last = {}
     for r in df.iter_rows(named=True):
@@ -138,3 +144,14 @@ def test_dst_days_follow_each_series_resolution():
         assert set(df.group_by("series").len()["len"]) == {quarter_hours}
     df, _ = run(by("SE3", "2025-10-26", "actual").read_bytes(), "SE3", date(2025, 10, 26), "actual")
     assert set(df["interval_minutes"]) == {60} and set(df.group_by("series").len()["len"]) == {25}
+
+
+def test_real_required_forecast_gap_is_series_level_blocking():
+    """DE_LU 2025-10-26: solar and onshore-wind forecasts (required, registry) start an hour late;
+    offshore wind (also required) is complete. Only the two gappy series carry blocking severity."""
+    df, cs = run(by("DE_LU", "2025-10-26", "forecast").read_bytes(), "DE_LU", date(2025, 10, 26), "forecast")
+    s = {c.check_name.split(":", 1)[1]: c for c in cs if c.check_name.startswith("series_complete:")}
+    assert set(s) == {"B16", "B18", "B19"} and all(c.severity == "warn" for c in s.values())  # never stops publishing
+    assert [k for k, c in sorted(s.items()) if not c.passed] == ["B16", "B19"]
+    assert all(c.metrics["required"] and c.metrics["series_severity"] == "blocking" for c in s.values())
+    assert s["B16"].metrics["missing_intervals"] == 4 and s["B16"].metrics["first_missing"][0] == "2025-10-25T22:00:00Z"

@@ -194,7 +194,7 @@ def make_fuel_task(market: Market, ba: str, *, opener=None, now: Callable[[], da
         if fuel.incomplete_only(data_checks) and now() < region.publication_deadline(market, day):
             raise RetryableTaskError("source_not_ready", f"eia fuel {ba} {ctx.partition_key}: hours still missing",
                                      retry_after_s=1800, materializations=mats, checks=results + data_checks)
-        mats.append(_write(ctx, gen, gen_ds, "generation-2"))
+        mats.append(_write(ctx, gen, gen_ds, "generation-3"))
         return mats, results + data_checks
 
     return TaskDef(f"ingest_{slug}", ingest, asset_outputs=(bronze_asset, f"silver.{gen_ds}"),

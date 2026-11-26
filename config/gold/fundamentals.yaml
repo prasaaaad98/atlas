@@ -4,7 +4,7 @@ version: 1
 status: proposed
 
 # Renewable = every canonical type whose group is listed (config/mappings/fuel_types.yaml,
-# ADR-B04). Storage is its own group: it moves energy, it doesn't produce it. For EIA-930 this
+# ADR-B09). Storage is its own group: it moves energy, it doesn't produce it. For EIA-930 this
 # is wind, solar, hydro, geothermal (biomass/waste sit inside "other" there and can't be
 # counted without guessing).
 renewable_fuel_groups: [renewable]

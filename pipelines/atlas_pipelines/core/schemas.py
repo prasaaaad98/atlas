@@ -110,7 +110,7 @@ DEMAND: dict[str, tuple[pl.DataType, bool]] = {
     "source_uri": (pl.String, False),
 }
 
-# silver.generation (PHASE_AB_PLAN.md §3.3, ADR-B04): demand's columns with fuel_type and
+# silver.generation (PHASE_AB_PLAN.md §3.3, ADR-B09): demand's columns with fuel_type and
 # generation_mw. fuel_type is canonical (config/mappings/fuel_types.yaml); source_type keeps
 # the source's own code (B16, SUN) so mapping never loses detail. direction: generation |
 # consumption (storage charging, a separate source series; value positive) | net (one signed
@@ -127,6 +127,7 @@ GENERATION: dict[str, tuple[pl.DataType, bool]] = {
     "source_type": (pl.String, False),
     "direction": (pl.String, False),          # generation | consumption | net
     "generation_mw": (pl.Float64, True),      # average MW as sent; `net` rows may be negative (station use, charging)
+    "series_complete": (pl.Boolean, False),   # this series (kind, source_type, direction, fetch) covers the whole day (ADR-B10)
     "kind": (pl.String, False),               # actual | forecast (EIA-930 has no fuel forecasts)
     "issued_at_utc": (UTC, True),
     "horizon_minutes": (pl.Int32, True),

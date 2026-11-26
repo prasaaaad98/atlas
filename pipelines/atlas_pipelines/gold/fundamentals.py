@@ -12,7 +12,7 @@ Definitions (config/gold/fundamentals.yaml, docs/data/gold.md; status proposed):
   generation_mw    = sum of NET generation over every fuel the BA reported (storage included,
                      so charging hours lower it)
   renewable_mw     = sum over reported fuels whose gold group is in renewable_fuel_groups
-                     (config/mappings/fuel_types.yaml groups; ADR-B04)
+                     (config/mappings/fuel_types.yaml groups; ADR-B09)
   renewable_share  = renewable_mw / generation_mw (null if generation_mw <= 0)
 Invariants:
   - An incomplete demand or generation day produces no gold rows (blocking), never partial.

@@ -50,6 +50,19 @@ entsoe:
     # fetched_at_utc until a sourced availability rule is recorded here.
     forecast_availability: {rule: null, status: assumed}
 
+  generation:
+    # Owner decision 2026-11-26 (ADR-B10): completeness is judged per series. `required` series
+    # have series-level severity blocking: assets that need them (gold net load) block where
+    # they're missing. Every other series is optional (warn only). Both kinds publish whatever
+    # is complete; nothing is filled. Zone lists = the wind/solar series each zone sends in the
+    # saved forecast documents (2026-11-26): DE_LU B16/B18/B19, ES and SE3 B16/B19.
+    required:
+      forecast:
+        DE_LU: [solar, wind_onshore, wind_offshore]
+        ES: [solar, wind_onshore]
+        SE3: [solar, wind_onshore]
+      actual: {}
+
   request:
     document_type: A44
     # "A01" = daily auction only. Source: voltstack.energy/insights/entsoe-api-guide

@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 import polars as pl
 
 from atlas_pipelines.core.markets import Market, iso_utc
+from atlas_pipelines.core import completeness
 from atlas_pipelines.core.schemas import GENERATION, schema_check
 from atlas_pipelines.core.task import CheckResult
 from atlas_pipelines.sources import fuels
@@ -66,9 +67,16 @@ def parse(rows: list[dict], market: Market, ba: str, day: date | None, fetched_a
                     "fuel_type": m.fuel_type, "source_type": code, "direction": "net", "generation_mw": client.to_number(r.get("value")),
                     "kind": "actual", "issued_at_utc": None, "horizon_minutes": None, "fetched_at_utc": fetched_at,
                     "availability_assumption": None, "source_uri": source_uri})
-    schema = {c: t for c, (t, _) in GENERATION.items()}
+    schema = {c: t for c, (t, _) in GENERATION.items() if c != "series_complete"}
     df = pl.DataFrame(out, schema=schema) if out else pl.DataFrame(schema=schema)
-    return df.sort("fuel_type", "interval_start_utc"), unknown
+    if day:  # per series (ADR-B10); the task still blocks an incomplete EIA day (each_reported_fuel_complete)
+        df = completeness.mark_complete(df, ["source_type"], lo, lo + timedelta(days=1), "generation_mw")
+    else:    # multi-day parse (tests/backfill reads): one series per code and UTC day
+        df = df.with_columns(pl.col("interval_start_utc").dt.date().alias("_d"))
+        stats = df.group_by("source_type", "_d").agg(((pl.len() == 24) & (pl.col("generation_mw").null_count() == 0))
+                                                    .alias("series_complete"))
+        df = df.join(stats, on=["source_type", "_d"], how="left").drop("_d")
+    return df.select(list(GENERATION)).sort("fuel_type", "interval_start_utc"), unknown
 
 
 def checks(df: pl.DataFrame, rows: list[dict], unknown: set[str], day: date,

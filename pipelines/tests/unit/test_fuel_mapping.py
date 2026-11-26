@@ -1,4 +1,4 @@
-"""The shared generation-type mapping, version 2 (config/mappings/fuel_types.yaml, ADR-B04).
+"""The shared generation-type mapping, version 2 (config/mappings/fuel_types.yaml, ADR-B09).
 
 Pins the owner's ENTSO-E table (2026-11-26) and the EIA codes the owner named, so a config
 edit that changes a mapping fails here first. Also: every type has one gold group, an

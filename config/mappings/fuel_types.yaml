@@ -1,5 +1,5 @@
 # Canonical generation types (silver.generation.fuel_type) and per-source mappings, version 2.
-# Owner decision 2026-11-26 (ADR-B04): one shared `fuel_type` list for every market; each
+# Owner decision 2026-11-26 (ADR-B09): one shared `fuel_type` list for every market; each
 # adapter maps its source codes into it. Rules:
 #   - Every silver row also keeps the source's own code (`source_type`, e.g. B16, SUN):
 #     mapping never loses detail.

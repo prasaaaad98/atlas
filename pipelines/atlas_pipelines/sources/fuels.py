@@ -4,7 +4,7 @@ Why it exists: generation from different sources must land in one vocabulary (so
 wind_onshore, gas, …) so shared checks, gold and the simulator never special-case a source.
 A source code maps to exactly one canonical type and every type belongs to one gold group
 (renewable | fossil | nuclear | storage | other). An unknown code is a blocking failure,
-never a default (ADR-B04). The source's own code is kept on every row (`source_type`).
+never a default (ADR-B09). The source's own code is kept on every row (`source_type`).
 Who calls it: sources/eia/fuel.py (E3), sources/entsoe/generation.py (B4b), gold/.
 """
 
