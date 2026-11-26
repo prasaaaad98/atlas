@@ -36,7 +36,7 @@ CASES = sorted(p for p in (FIXTURES / "entsoe").glob("*.xml") if NAME.match(p.st
 # The fixtures are local-only (exchange-owned prices, see docs/data/sources/entsoe.md),
 # so CI has none: skip, saying why, instead of passing vacuously.
 pytestmark = pytest.mark.skipif(not CASES, reason="ENTSO-E fixtures are local-only and not present")
-EXPECTED_WARNS = ["price_within_limits", "series_selection_verified"]  # limits unset; selection not verified
+EXPECTED_WARNS = ["series_selection_verified"]  # selection not verified; limits: owner policy none (2026-11-26)
 
 
 def test_all_expected_fixtures_present():

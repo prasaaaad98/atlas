@@ -114,3 +114,30 @@ def test_schema_check_passes_canonical_and_catches_drift():
     naive_ts = df.with_columns(pl.col("interval_start_utc").dt.replace_time_zone(None))
     assert not schema_check(naive_ts, POWER_PRICES, "p").passed  # UTC-only rule
     assert df.schema["interval_start_utc"] == UTC
+
+
+NO_LIMITS = "    price_limits: none\n    price_limits_meta: {decided_by: owner, date: 2026-11-26, reason: take data as sent}"
+
+
+def test_no_limits_policy_passes_any_finite_price_and_records_range(tmp_path):
+    """Owner policy (ENTSO-E, 2026-11-26): no range limits; prices are taken as the source sends them."""
+    c = by_name(price_checks(frame([-500.0, 0.0, 9999.0]), market(tmp_path, NO_LIMITS), "DAM"))
+    lim = c["price_within_limits"]
+    assert lim.passed and lim.metrics["policy"] == "none" and (lim.metrics["min"], lim.metrics["max"]) == (-500.0, 9999.0)
+    assert lim.metrics["decided_by"] == "owner"
+
+
+def test_no_limits_policy_still_blocks_non_finite(tmp_path):
+    c = by_name(price_checks(frame([1.0, math.nan]), market(tmp_path, NO_LIMITS), "DAM"))
+    assert (c["price_finite"].passed, c["price_finite"].severity) == (False, "blocking")
+
+
+@pytest.mark.parametrize("limits", [
+    NO_LIMITS + "\n    price_floor: 0\n    price_floor_meta: {status: assumed}",   # policy contradicts a limit
+    "    price_limits: none",                                                     # decision without who/when
+    "    price_limits: loose\n    price_limits_meta: {decided_by: owner, date: 2026-11-26}",
+])
+def test_no_limits_policy_is_validated(tmp_path, limits):
+    from atlas_pipelines.core.markets import RegistryError
+    with pytest.raises(RegistryError):
+        market(tmp_path, limits)

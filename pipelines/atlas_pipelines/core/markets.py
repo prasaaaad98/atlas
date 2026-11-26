@@ -61,6 +61,10 @@ class Product:
     price_cap: float | None
     price_floor_status: str | None  # "sourced" | "assumed" | None when unset
     price_cap_status: str | None
+    # "none" = owner policy: no range limits, prices taken as the source sends them
+    # (price_limits_meta records who decided and when). None = limits apply as set.
+    limits_policy: str | None
+    limits_policy_meta: dict | None
     gate_closure_local: str | None  # "HH:MM" local, set from source docs
     publication_local: str | None  # "HH:MM" local, set from measurements
 
@@ -206,6 +210,7 @@ def _load_product(code: str, raw: dict, where: str) -> Product:
         raise RegistryError(f"{where}: price_floor > price_cap")
     floor_status = _limit_status(raw, "price_floor", where)
     cap_status = _limit_status(raw, "price_cap", where)
+    policy, policy_meta = _limits_policy(raw, where)
     return Product(
         code=code,
         canonical_market=str(_require(raw, "canonical_market", where)),
@@ -214,6 +219,8 @@ def _load_product(code: str, raw: dict, where: str) -> Product:
         price_cap=cap,
         price_floor_status=floor_status,
         price_cap_status=cap_status,
+        limits_policy=policy,
+        limits_policy_meta=policy_meta,
         gate_closure_local=raw.get("gate_closure_local"),
         publication_local=raw.get("publication_local"),
     )
@@ -236,6 +243,22 @@ def _limit_status(raw: dict, name: str, where: str) -> str | None:
     if meta["status"] in ("sourced", "verified") and not meta.get("source"):
         raise RegistryError(f"{where}: {name}_meta status {meta['status']!r} needs a 'source'")
     return meta["status"]
+
+
+def _limits_policy(raw: dict, where: str) -> tuple[str | None, dict | None]:
+    """`price_limits: none` is an owner decision, not a market number: it must say who and when,
+    and it can't coexist with a floor or cap (that would leave two answers to "is this price ok")."""
+    policy = raw.get("price_limits")
+    if policy is None:
+        return None, None
+    if policy != "none":
+        raise RegistryError(f"{where}: price_limits must be 'none' or absent, got {policy!r}")
+    meta = raw.get("price_limits_meta")
+    if not isinstance(meta, dict) or not meta.get("decided_by") or not meta.get("date"):
+        raise RegistryError(f"{where}: price_limits: none needs price_limits_meta with decided_by and date")
+    if raw.get("price_floor") is not None or raw.get("price_cap") is not None:
+        raise RegistryError(f"{where}: price_limits: none contradicts a set price_floor/price_cap")
+    return policy, {k: str(v) for k, v in meta.items()}  # dates as text: metrics go into JSON manifests
 
 
 def _require(raw: dict, key: str, where: str):

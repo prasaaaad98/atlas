@@ -21,8 +21,11 @@ products:
     intervals:
       - {effective_from: 2022-04-01, minutes: 60}   # start of the history we cover
       - {effective_from: 2025-10-01, minutes: 15, source: "SDAC press release, 1 Oct 2025 (owner)"}
-    # SDAC harmonised min/max clearing prices not yet recorded with a source.
-    # Prices can be negative; range checks are warn-only while these are null.
+    # Owner decision 2026-11-26: no floor or cap. Prices (negative included) are taken
+    # as ENTSO-E sends them; the range is recorded on every partition and B6
+    # price_outliers flags unusual values against each zone's own history.
+    price_limits: none
+    price_limits_meta: {decided_by: owner, date: 2026-11-26, reason: "take data as it is sent; negative EUR prices are real"}
     price_floor: null
     price_cap: null
     gate_closure_local: null   # TODO(B1): from SDAC rules, with citation

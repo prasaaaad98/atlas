@@ -7,6 +7,7 @@ The limits come only from the registry, with provenance (core/markets.py).
 Severity follows the provenance of the limit:
   - both limits `sourced`/`verified` -> blocking
   - any limit `assumed` or unset  -> warn (recorded, never silently passed)
+  - `price_limits: none` (owner policy) -> passes; min/max and the decision are recorded
 A non-finite price (NaN, inf) is always blocking. A currency that doesn't match
 the registry is always blocking.
 Who calls it: every market adapter's silver task.
@@ -32,9 +33,14 @@ def price_checks(df: pl.DataFrame, market: Market, product: str) -> list[CheckRe
     unset = [name for name, v in (("price_floor", lo), ("price_cap", hi)) if v is None]
 
     currencies = sorted(set(df["currency"].unique().to_list()))
-    return [
-        CheckResult("price_finite", "blocking", non_finite == 0, {"non_finite": non_finite}),
-        CheckResult(
+    if p.limits_policy == "none":
+        # Owner policy: take prices as sent (negative included). Range still recorded so a
+        # strange value is visible; B6 price_outliers flags it against the zone's own history.
+        limits = CheckResult("price_within_limits", "warn", True,
+                             {"policy": "none", **(p.limits_policy_meta or {}),
+                              "min": prices.min(), "max": prices.max()})
+    else:
+        limits = CheckResult(
             "price_within_limits",
             "blocking" if sourced else "warn",
             below == 0 and above == 0 and not unset,
@@ -49,7 +55,10 @@ def price_checks(df: pl.DataFrame, market: Market, product: str) -> list[CheckRe
                 "min": prices.min(),
                 "max": prices.max(),
             },
-        ),
+        )
+    return [
+        CheckResult("price_finite", "blocking", non_finite == 0, {"non_finite": non_finite}),
+        limits,
         CheckResult(
             "currency_matches_registry",
             "blocking",
