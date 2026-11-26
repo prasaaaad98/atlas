@@ -36,6 +36,7 @@ from atlas_pipelines.core.limits import load_limit
 from atlas_pipelines.core.markets import Market, iso_utc
 from atlas_pipelines.core.pipeline import Pipeline, TaskDef
 from atlas_pipelines.core.task import CheckResult, Materialization, RetryableTaskError, TaskContext
+from atlas_pipelines.gold import fundamentals
 from atlas_pipelines.sources import fuels
 from atlas_pipelines.sources.eia import client, fuel, gas, region, storage
 
@@ -266,6 +267,70 @@ def make_storage_task(market: Market, *, opener=None, now: Callable[[], datetime
                    max_attempts=8, limit_key="eia", retry=RETRY)
 
 
+def _verified_input(ctx: TaskContext, asset: str) -> tuple[pl.DataFrame | None, str | None, CheckResult | None]:
+    """The current silver partition of `asset`, read only if its bytes match the pointer's hash."""
+    cur = ctx.resolve_input(asset, ctx.partition_key)
+    if cur is None:
+        return None, None, None
+    path = absolute_path(ctx.lake_root, cur["uri"])
+    actual = sha256_file(path)
+    if actual != cur["content_hash"]:
+        return None, None, CheckResult("input_hash_matches_pointer", "blocking", False,
+                                       {"asset": asset, "uri": cur["uri"], "pointer": cur["content_hash"], "file": actual})
+    return pl.read_parquet(path), actual, None
+
+
+def _write_gold(ctx: TaskContext, df: pl.DataFrame, dataset: str, schema_version: str, code_version: str) -> Materialization:
+    out = attempt_dir(ctx.lake_root, "gold", dataset, "date", ctx.partition_key, ctx.attempt_id)
+    path = out / "part-0.parquet"
+    write_parquet_atomic(df, path)
+    return Materialization(f"gold.{dataset}", ctx.partition_key, relative_uri(ctx.lake_root, path), df.height,
+                           sha256_file(path), schema_version, code_version)
+
+
+def make_fundamentals_task(market: Market, ba: str, *, now: Callable[[], datetime] = _utcnow) -> TaskDef:
+    """E7: silver demand + generation (+ interchange) for one BA and UTC day -> gold.fundamentals_hourly__us_ba_<ba>.
+    Reads only silver (no source request, no limit key). Missing inputs are retried while the
+    day is recent (they may still be ingesting), then block."""
+    defs = fundamentals.load_definitions()
+    slug = ba.lower()
+    assets = {k: f"silver.{k}__{market.id}_{slug}" for k in ("demand", "generation", "interchange")}
+    ds = f"fundamentals_hourly__{market.id}_{slug}"
+
+    def build(ctx: TaskContext):
+        frames, hashes, results = {}, {}, []
+        for k, asset in assets.items():
+            frames[k], hashes[k], bad = _verified_input(ctx, asset)
+            if bad:
+                return [], [bad]
+        missing = [assets[k] for k in ("demand", "generation") if frames[k] is None]
+        if missing:
+            if now() < region.publication_deadline(market, date.fromisoformat(ctx.partition_key)):
+                raise RetryableTaskError("source_not_ready", f"gold {ba} {ctx.partition_key}: waiting for {missing}",
+                                         retry_after_s=1800)
+            return [], [CheckResult("inputs_current", "blocking", False, {"missing": missing})]
+        df, results = fundamentals.hourly(frames["demand"], frames["generation"], frames["interchange"], defs, hashes)
+        if df.is_empty():
+            return [], results
+        return [_write_gold(ctx, df, ds, "fundamentals_hourly-1", fundamentals.DEFINITION_VERSION)], results
+
+    return TaskDef(f"fundamentals_{slug}", build, asset_outputs=(f"gold.{ds}",), max_attempts=8, retry=RETRY)
+
+
+def make_buildout_task(market: Market, ingest: TaskDef) -> TaskDef:
+    """E7: one report month of silver.storage_capacity -> gold.storage_buildout__<market> (per BA)."""
+    silver_asset, ds = f"silver.storage_capacity__{market.id}", f"storage_buildout__{market.id}"
+
+    def build(ctx: TaskContext):
+        df, digest, bad = _verified_input(ctx, silver_asset)
+        if bad or df is None:
+            return [], [bad or CheckResult("input_current", "blocking", False, {"asset": silver_asset})]
+        gold, results = fundamentals.buildout(df, digest)
+        return [_write_gold(ctx, gold, ds, "storage_buildout-1", fundamentals.BUILDOUT_VERSION)], results
+
+    return TaskDef("buildout_storage", build, deps=(ingest.name,), asset_outputs=(f"gold.{ds}",))
+
+
 def eia_pipelines(registry: dict[str, Market], **task_kwargs) -> list[Pipeline]:
     market = registry.get("us_ba")
     if market is None or "eia" not in (market.raw or {}):
@@ -274,6 +339,7 @@ def eia_pipelines(registry: dict[str, Market], **task_kwargs) -> list[Pipeline]:
     inters = [make_interchange_task(market, ba, t, **({"now": task_kwargs["now"]} if "now" in task_kwargs else {}))
               for ba, t in zip(market.zones, ingests)]
     fuel_tasks = [make_fuel_task(market, ba, **task_kwargs) for ba in market.zones]
+    storage_ingest = make_storage_task(market, **task_kwargs)
     return [Pipeline("eia930_region_daily", "UTC", tuple(ingests + inters),
                      description="EIA-930 demand, day-ahead forecast and net interchange per US BA (UTC days)"),
             Pipeline("eia930_fuel_daily", "UTC", tuple(fuel_tasks),
@@ -281,5 +347,9 @@ def eia_pipelines(registry: dict[str, Market], **task_kwargs) -> list[Pipeline]:
             Pipeline("eia_henry_hub_monthly", "UTC",
                      tuple(make_gas_task(sid, spec, **task_kwargs) for sid, spec in gas.load_series().items()),
                      description="EIA Henry Hub daily spot price per trade month (partition = YYYY-MM-01)"),
-            Pipeline("eia_storage_monthly", "UTC", (make_storage_task(market, **task_kwargs),),
-                     description="EIA generator inventory, energy storage, per report month (partition = YYYY-MM-01)")]
+            Pipeline("eia_storage_monthly", "UTC", (storage_ingest, make_buildout_task(market, storage_ingest)),
+                     description="EIA generator inventory, energy storage, per report month (partition = YYYY-MM-01)"),
+            Pipeline("eia930_gold_daily", "UTC",
+                     tuple(make_fundamentals_task(market, ba, **({"now": task_kwargs["now"]} if "now" in task_kwargs else {}))
+                           for ba in market.zones),
+                     description="Gold fundamentals per US BA and UTC hour, from EIA silver only (E7)")]

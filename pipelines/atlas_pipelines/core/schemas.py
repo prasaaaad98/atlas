@@ -191,6 +191,44 @@ INTERCHANGE: dict[str, tuple[pl.DataType, bool]] = {
 }
 
 
+# gold.fundamentals_hourly (EIA plan E7): per BA and UTC hour, from silver demand,
+# generation and interchange only. Definitions: docs/data/gold.md (proposed, owner to
+# confirm) and config/gold/fundamentals.yaml. Null = not computable from what the
+# source reported (never filled).
+FUNDAMENTALS_HOURLY: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, False),
+    "interval_start_utc": (UTC, False),
+    "interval_end_utc": (UTC, False),
+    "local_date": (pl.Date, False),
+    "local_hour": (pl.Int8, False),
+    "demand_mw": (pl.Float64, False),
+    "solar_mw": (pl.Float64, True),            # null: the BA reported no solar that day
+    "wind_mw": (pl.Float64, True),
+    "net_load_mw": (pl.Float64, True),         # demand − solar − wind; null if either is null
+    "generation_mw": (pl.Float64, False),      # total NET generation, every reported fuel
+    "renewable_mw": (pl.Float64, False),       # reported fuels in the configured renewable set
+    "renewable_share": (pl.Float64, True),     # renewable_mw / generation_mw; null if generation_mw <= 0
+    "net_interchange_mw": (pl.Float64, True),  # positive = net exports; null = source gap
+    "demand_source_hash": (pl.String, False),  # sha256 of each silver input file (lineage)
+    "generation_source_hash": (pl.String, False),
+    "interchange_source_hash": (pl.String, True),  # null when no current interchange partition
+}
+
+# gold.storage_buildout (EIA plan E7): per BA (zone null = EIA gave none) and report month.
+STORAGE_BUILDOUT: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, True),
+    "report_month": (pl.Date, False),
+    "operating_mw": (pl.Float64, False),       # nameplate, status operating
+    "operating_generators": (pl.Int32, False),
+    "added_mw": (pl.Float64, False),           # operating, with operating_month = report_month
+    "standby_mw": (pl.Float64, False),
+    "out_of_service_mw": (pl.Float64, False),  # both out-of-service statuses
+    "source_hash": (pl.String, False),
+}
+
+
 def empty_frame(schema: dict) -> pl.DataFrame:
     return pl.DataFrame(schema={c: t for c, (t, _) in schema.items()})
 

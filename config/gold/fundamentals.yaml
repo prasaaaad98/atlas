@@ -1,0 +1,12 @@
+# Gold fundamentals definitions (slice E7). Loaded by pipelines/atlas_pipelines/gold/fundamentals.py.
+# status proposed: the owner confirms (docs/data/gold.md), like the daily_spreads definitions.
+version: 1
+status: proposed
+
+# Canonical fuel types (config/fuel_types.yaml) counted as renewable. Storage is excluded:
+# it moves energy, it doesn't produce it. Biomass/waste is inside "other" in EIA-930, so it
+# can't be counted here without guessing.
+renewable_fuel_types: [wind, solar, hydro, geothermal]
+
+# net_load = demand - solar - wind (PLAN_EIA_TRACK.md E7).
+net_load_subtracts: [solar, wind]
