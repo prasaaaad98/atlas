@@ -40,3 +40,6 @@ test
 # ENTSO-E day-ahead prices belong to the exchanges (docs/data/sources/entsoe.md):
 # fixtures stay on this PC until publishing rights are confirmed. Tests skip without them.
 /pipelines/tests/fixtures/entsoe/
+# Open-Meteo: owner decision 2026-11-26, internal testing only, never on GitHub
+# (docs/data/sources/openmeteo.md). The B4 golden tests skip without them (e.g. in CI).
+/pipelines/tests/fixtures/openmeteo/
