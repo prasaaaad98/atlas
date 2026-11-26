@@ -147,8 +147,46 @@ def save(name: str, status, body: bytes, url: str) -> dict | None:
         return None
 
 
+def saved_ok(name: str) -> dict | None:
+    """The saved 200 response for `name`, or None. Checked BEFORE requesting, so a re-run
+    only asks EIA for what is still missing (it used to re-request everything)."""
+    path, meta_path = OUT / f"{name}.json", OUT / f"{name}.meta.json"
+    if not (path.exists() and meta_path.exists()):
+        return None
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.get("http_status") != 200:
+        return None
+    summary["files"].append({"file": path.name, "http_status": 200, "url": meta.get("url"),
+                             "bytes": meta.get("bytes"), "skipped": "exists (200)"})
+    print(f"   200  {path.name} (saved earlier, not re-requested)")
+    try:
+        return json.loads(path.read_bytes())
+    except ValueError:
+        return {}
+
+
+# EIA's gateway sometimes fails everything for hours. After this many files in a row fail
+# with 5xx/timeout (each already retried 3 times), stop instead of burning hours; re-run later.
+MAX_CONSECUTIVE_GATEWAY_FAILURES = 3
+_gateway_failures = 0
+
+
 def fetch(name: str, route: str, params=None) -> dict | None:
+    global _gateway_failures
+    done = saved_ok(name)
+    if done is not None:
+        return done
     status, body, url = get(route, params)
+    if status is None or status >= 500:
+        _gateway_failures += 1
+        if _gateway_failures >= MAX_CONSECUTIVE_GATEWAY_FAILURES:
+            save(name, status, body, url)
+            summary["notes"].append(f"stopped: {_gateway_failures} files in a row failed with 5xx/timeout (EIA gateway down)")
+            finish()
+            sys.exit(f"EIA's gateway failed {_gateway_failures} files in a row (after retries); stopped. "
+                     "Saved files are kept; run `make fixture-eia` again later and only missing files are requested.")
+    else:
+        _gateway_failures = 0
     if status == 429:
         save(name, status, body, url)
         summary["notes"].append("HTTP 429: stopped to respect EIA's throttle")
