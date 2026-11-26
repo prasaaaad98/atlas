@@ -48,6 +48,13 @@ def load_section(market: Market) -> dict:
     return sec
 
 
+def kinds_due(market: Market, day: date, now: datetime) -> tuple[str, ...]:
+    """Point in time (§3.4a): before the delivery day starts only its day-ahead forecast can
+    exist, so a run then fetches the forecast alone (the vintage a decision can use); actuals
+    come with a run after the day (the schedule's re-fetches)."""
+    return ("forecast",) if now < market.day_bounds_utc(day)[0] else ("actual", "forecast")
+
+
 def make_load_task(market: Market, zone: str, *, opener=None, now: Callable[[], datetime] = _utcnow,
                    limiter: RateLimiter | None = None) -> TaskDef:
     sec = load_section(market)
@@ -62,8 +69,12 @@ def make_load_task(market: Market, zone: str, *, opener=None, now: Callable[[], 
             raise RuntimeError(f"{TOKEN_ENV} is not set (put it in .env; never commit it)")
         day = date.fromisoformat(ctx.partition_key)
         deadline = market.day_bounds_utc(day)[1] + timedelta(hours=float(sec["publication"]["late_after_hours_from_day_end"]))
+        due = kinds_due(market, day, now())
         mats, results, frames, waiting = [], [], [], []
+        results.append(CheckResult("kinds_fetched", "warn", True, {"fetched": list(due), "rule": "before the day: forecast only"}))
         for kind, item in ITEM.items():
+            if kind not in due:
+                continue
             params = {**er.request_params(item, market, eic, day), "securityToken": token}
             res = http_get(base_url(), params, limiter=limiter or _limiter("entsoe"), secret_params=("securityToken",),
                            **({"opener": opener} if opener else {}))
@@ -108,7 +119,7 @@ def make_load_task(market: Market, zone: str, *, opener=None, now: Callable[[], 
             return mats, results
         cur = ctx.resolve_input(f"silver.{ds}", ctx.partition_key)
         previous = pl.read_parquet(absolute_path(ctx.lake_root, cur["uri"])) if cur else None
-        demand = vintages.carry_vintages(pl.concat(frames), previous)
+        demand = vintages.carry_vintages(pl.concat(frames), previous, due)
         vcfg = stats.load_config()
         history = [h.filter(pl.col("kind") == "actual")
                    for h in stats.trailing_frames(ctx, f"silver.{ds}", day, vcfg["trailing"]["window_days"])]

@@ -7,7 +7,10 @@ Who calls it: defs/entsoe_gold.py (net_load_<zone> tasks); tests.
 
 Definitions (config/gold/net_load.yaml; status proposed):
   inputs (declared)  demand + every generation-direction solar/wind series present that day +
-                     the zone's required wind/solar types (registry); latest vintage of each
+                     the zone's required wind/solar types (registry)
+  vintage            actual: latest. forecast: latest KNOWN by decision_at_utc = start of the local
+                     day (owner-confirmed 2026-11-27); a later vintage is never used (no_lookahead,
+                     blocking); a series with no vintage by then is missing ("B18 (not known by ...)")
   net_load_mw        demand − Σ solar − Σ wind, per interval; NULL where any input lacks a value,
                      with missing_inputs naming it ("B18", "demand", "wind_offshore (absent)")
   generation_mix     Σ generation per (kind, fuel_group, direction); NULL where any series of the
@@ -27,12 +30,13 @@ import polars as pl
 import yaml
 
 from atlas_pipelines.core import config
-from atlas_pipelines.core.markets import Market
+from atlas_pipelines.core.markets import Market, iso_utc
 from atlas_pipelines.core.schemas import GENERATION_MIX, NET_LOAD, schema_check
 from atlas_pipelines.core.task import CheckResult
 from atlas_pipelines.sources import fuels
+from atlas_pipelines.validation import lookahead
 
-DEFINITION_VERSION = "net_load-1 (proposed 2026-11-26)"
+DEFINITION_VERSION = "net_load-2 (owner-confirmed 2026-11-27)"
 KINDS = ("actual", "forecast")
 
 
@@ -74,12 +78,20 @@ def build(demand: pl.DataFrame, generation: pl.DataFrame, market: Market, zone: 
     solar_t, wind_t = set(defs["solar_fuel_types"]), set(defs["wind_fuel_types"])
     groups = fuels.load_canonical()
     nl_rows, mix_rows, checks, blocked = [], [], [], {}
+    decision = market.day_bounds_utc(day)[0]
     for kind in KINDS:
-        d = latest(demand.filter(pl.col("kind") == kind), ["kind"])
-        g = latest(generation.filter(pl.col("kind") == kind), ["kind", "source_type", "direction"])
-        if d.is_empty() and g.is_empty():
+        d_all, g_all = demand.filter(pl.col("kind") == kind), generation.filter(pl.col("kind") == kind)
+        if d_all.is_empty() and g_all.is_empty():
             continue
-        res = set(d["interval_minutes"].to_list()) | set(g["interval_minutes"].to_list())
+        if kind == "forecast":  # point in time: only vintages known by the decision time
+            def known(df):
+                return lookahead.with_known_at(df).filter(pl.col(lookahead.KNOWN_AT) <= decision).drop(lookahead.KNOWN_AT)
+            d_use, g_use = known(d_all), known(g_all)
+        else:
+            d_use, g_use = d_all, g_all
+        d = latest(d_use, ["kind"])
+        g = latest(g_use, ["kind", "source_type", "direction"])
+        res = set(d_all["interval_minutes"].to_list()) | set(g_all["interval_minutes"].to_list())
         checks.append(CheckResult(f"resolution_matches_{kind}", "blocking", len(res) == 1, {"minutes": sorted(res)}))
         if len(res) != 1:
             continue
@@ -89,13 +101,20 @@ def build(demand: pl.DataFrame, generation: pl.DataFrame, market: Market, zone: 
         gen = g.filter(pl.col("direction") == "generation")
         solar = _series(gen.filter(pl.col("fuel_type").is_in(list(solar_t))))
         wind = _series(gen.filter(pl.col("fuel_type").is_in(list(wind_t))))
-        absent = sorted(set(required) - set(gen["fuel_type"].to_list()))
+        # Sent, but only after the decision time: missing for this view, named as such.
+        late = sorted(set(_series(g_all.filter((pl.col("direction") == "generation")
+                                               & pl.col("fuel_type").is_in(list(solar_t | wind_t))))) - set(solar) - set(wind))
+        late_tag = f" (not known by {iso_utc(decision)})"
+        demand_late = d.is_empty() and not d_all.is_empty()
+        absent = sorted(set(required) - set(gen["fuel_type"].to_list())
+                        - set(g_all.filter(pl.col("source_type").is_in(late))["fuel_type"].to_list()))
         d_at = d["fetched_at_utc"].max() if d.height else None
         g_at = g["fetched_at_utc"].max() if g.height else None
         n_blocked = 0
         for t in grid:
-            missing = (["demand"] if dem.get(t) is None else []) + \
-                      sorted(n for n, s in {**solar, **wind}.items() if s.get(t) is None) + [f"{a} (absent)" for a in absent]
+            missing = ([("demand" + late_tag) if demand_late else "demand"] if dem.get(t) is None else []) + \
+                      sorted(n for n, s in {**solar, **wind}.items() if s.get(t) is None) + \
+                      [n + late_tag for n in late] + [f"{a} (absent)" for a in absent]
             sv = None if any(s.get(t) is None for s in solar.values()) or not solar else sum(s[t] for s in solar.values())
             wv = None if any(s.get(t) is None for s in wind.values()) or not wind else sum(s[t] for s in wind.values())
             net = None if missing else dem[t] - (sv or 0.0) - (wv or 0.0)
@@ -105,7 +124,8 @@ def build(demand: pl.DataFrame, generation: pl.DataFrame, market: Market, zone: 
                             "interval_end_utc": t + timedelta(minutes=minutes), "interval_minutes": minutes,
                             "local_date": loc.date(), "local_hour": loc.hour, "demand_mw": dem.get(t),
                             "solar_mw": sv, "wind_mw": wv, "net_load_mw": net,
-                            "missing_inputs": ",".join(missing) or None, "demand_fetched_at_utc": d_at,
+                            "missing_inputs": ",".join(missing) or None,
+                            "decision_at_utc": decision if kind == "forecast" else None, "demand_fetched_at_utc": d_at,
                             "generation_fetched_at_utc": g_at, "demand_source_hash": hashes["demand"],
                             "generation_source_hash": hashes["generation"]})
         blocked[kind] = n_blocked
@@ -126,7 +146,11 @@ def build(demand: pl.DataFrame, generation: pl.DataFrame, market: Market, zone: 
     nl = pl.DataFrame(nl_rows, schema={c: t for c, (t, _) in NET_LOAD.items()}).sort("kind", "interval_start_utc")
     mix = pl.DataFrame(mix_rows, schema={c: t for c, (t, _) in GENERATION_MIX.items()}).sort(
         "kind", "fuel_group", "direction", "interval_start_utc")
+    # Blocking: no forecast row used a vintage fetched after its decision time.
+    fc = nl.filter(pl.col("kind") == "forecast").with_columns(
+        pl.max_horizontal("demand_fetched_at_utc", "generation_fetched_at_utc").alias(lookahead.KNOWN_AT))
     checks += [
+        lookahead.no_lookahead_check(fc),
         schema_check(nl, NET_LOAD, "net_load"),
         schema_check(mix, GENERATION_MIX, "generation_mix"),
         # Recorded, never fixed: intervals where a declared input is missing (ADR-B10).

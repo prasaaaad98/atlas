@@ -11,8 +11,13 @@ def test_entsoe_schedules_name_real_pipelines_and_refetch():
     pipelines = build_pipelines(load_registry(REPO / "config" / "markets"))
     assert set(specs) == {"load_entsoe_daily", "generation_entsoe_daily", "entsoe_gold_daily"} <= set(pipelines)
     for name, spec in specs.items():
-        assert spec["refetch_after_days"] == [2, 7] and spec["tz"] == "Europe/Brussels", name
+        assert spec["tz"] == "Europe/Brussels", name
         schedule_body(spec)  # the body the control plane receives builds without error
+    # Point in time: silver fetches TOMORROW (forecast before the day); actuals via re-fetches.
+    for name in ("load_entsoe_daily", "generation_entsoe_daily"):
+        assert specs[name]["offset_days"] == 1 and specs[name]["refetch_after_days"] == [1, 2, 7], name
+    # Gold: the day before yesterday (after the +1 re-fetch), again after +2/+7.
+    assert specs["entsoe_gold_daily"]["offset_days"] == -2 and specs["entsoe_gold_daily"]["refetch_after_days"] == [2, 7]
     # gold runs after both ingests on the same day
     def hm(name):
         minute, hour = specs[name]["cron"].split()[:2]

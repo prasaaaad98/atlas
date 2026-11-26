@@ -257,7 +257,8 @@ def schema_check(df: pl.DataFrame, schema: dict, name: str) -> CheckResult:
 # gold.net_load (B4 gold, ADR-B10): per zone, kind (actual | forecast) and interval of the local
 # day. Inputs are declared (config/gold/net_load.yaml): demand + every wind/solar series. An
 # interval where any declared input has no value has net_load_mw null and names what is missing;
-# nothing is filled. Uses the latest vintage of each input (fetched_at recorded for lineage).
+# nothing is filled. Actual: latest vintage. Forecast: latest vintage known by decision_at_utc
+# (the start of the local day; owner 2026-11-27), checked by no_lookahead.
 NET_LOAD: dict[str, tuple[pl.DataType, bool]] = {
     "market": (pl.String, False),
     "zone": (pl.String, False),
@@ -272,6 +273,7 @@ NET_LOAD: dict[str, tuple[pl.DataType, bool]] = {
     "wind_mw": (pl.Float64, True),            # onshore + offshore; null if any wind series lacks it
     "net_load_mw": (pl.Float64, True),        # demand − solar − wind; null exactly where an input is missing
     "missing_inputs": (pl.String, True),      # comma-separated, e.g. "B18" or "wind_offshore (absent)"; null = none
+    "decision_at_utc": (UTC, True),           # forecast rows: inputs known by then (local day start); actual: null
     "demand_fetched_at_utc": (UTC, True),     # vintage used
     "generation_fetched_at_utc": (UTC, True),
     "demand_source_hash": (pl.String, False),

@@ -4,32 +4,34 @@
 # choices, not claims about when ENTSO-E publishes. Late intervals (a series published with
 # series_complete = false) are filled by the re-fetches: refetch_after_days d re-runs each
 # partition once, d days after it ended, as a new vintage; gold re-runs after each.
-# Known limit: these tasks fetch actual + forecast together for yesterday, so the forecast
-# vintage is fetched after delivery (fetched_at shows it). A point-in-time forecast needs a
-# separate forecast-only task fetched before the day (follow-up).
+# Point in time (§3.4a, owner 2026-11-27): load and generation run at 20:00 Brussels for
+# TOMORROW (offset +1). Before the day starts the task fetches the day-ahead forecast only: the
+# vintage gold may use. Actuals arrive with the re-fetches (+1 day = two evenings after the day,
+# +2, +7), which also add later forecast vintages (kept, never used for the forecast view).
+# Gold runs for the day before yesterday (offset -2) after the +1 re-fetch, and again after +2/+7.
 version: 1
 schedules:
   load_entsoe_daily:
-    why: actual load + day-ahead load forecast for yesterday (local day); +2 and +7 day re-fetches for late intervals and revisions
-    cron: "0 10 * * *"
+    why: day-ahead load forecast for tomorrow, before the day (point in time); actuals and late intervals via the +1/+2/+7 re-fetches
+    cron: "0 20 * * *"
     tz: Europe/Brussels
-    offset_days: -1
+    offset_days: 1
     catchup: true
-    start: 2026-11-24
-    refetch_after_days: [2, 7]
+    start: 2026-11-28
+    refetch_after_days: [1, 2, 7]
   generation_entsoe_daily:
-    why: generation per type + wind/solar day-ahead forecast for yesterday; same re-fetch policy (patchy series, ADR-B10)
-    cron: "15 10 * * *"
+    why: wind/solar day-ahead forecast for tomorrow, before the day; generation per type and late series via the +1/+2/+7 re-fetches (ADR-B10)
+    cron: "15 20 * * *"
     tz: Europe/Brussels
-    offset_days: -1
+    offset_days: 1
     catchup: true
-    start: 2026-11-24
-    refetch_after_days: [2, 7]
+    start: 2026-11-28
+    refetch_after_days: [1, 2, 7]
   entsoe_gold_daily:
-    why: gold net load + generation mix from silver only, after both ingests; re-built after each silver re-fetch
-    cron: "0 11 * * *"
+    why: gold net load + generation mix from silver only, after the +1 re-fetch brought the actuals; re-built after the +2/+7 re-fetches
+    cron: "30 21 * * *"
     tz: Europe/Brussels
-    offset_days: -1
+    offset_days: -2
     catchup: true
-    start: 2026-11-24
+    start: 2026-11-28
     refetch_after_days: [2, 7]

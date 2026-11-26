@@ -28,7 +28,7 @@ from atlas_pipelines.core.lake import absolute_path, attempt_dir, relative_uri, 
 from atlas_pipelines.core.markets import Market, iso_utc
 from atlas_pipelines.core.pipeline import Pipeline, TaskDef
 from atlas_pipelines.core.task import CheckResult, Materialization, RetryableTaskError, TaskContext
-from atlas_pipelines.defs.entsoe_load import load_section
+from atlas_pipelines.defs.entsoe_load import kinds_due, load_section
 from atlas_pipelines.defs.prices import TOKEN_ENV, _limiter, base_url
 from atlas_pipelines.sources import fuels
 from atlas_pipelines.sources.adapter import write_bronze
@@ -60,8 +60,12 @@ def make_generation_task(market: Market, zone: str, *, opener=None, now: Callabl
             raise RuntimeError(f"{TOKEN_ENV} is not set (put it in .env; never commit it)")
         day = date.fromisoformat(ctx.partition_key)
         deadline = market.day_bounds_utc(day)[1] + timedelta(hours=float(sec["publication"]["late_after_hours_from_day_end"]))
+        due = kinds_due(market, day, now())
         mats, results, frames, waiting = [], [], [], []
+        results.append(CheckResult("kinds_fetched", "warn", True, {"fetched": list(due), "rule": "before the day: forecast only"}))
         for kind, item in ITEM.items():
+            if kind not in due:
+                continue
             params = {**er.request_params(item, market, eic, day), "securityToken": token}
             res = http_get(base_url(), params, limiter=limiter or _limiter("entsoe"), secret_params=("securityToken",),
                            **({"opener": opener} if opener else {}))
@@ -100,10 +104,10 @@ def make_generation_task(market: Market, zone: str, *, opener=None, now: Callabl
                                          retry_after_s=1800, materializations=mats, checks=results)
             # Past the deadline: publish what was sent; a document that never came is recorded,
             # and its required series appear as absent (series-level blocking, ADR-B10).
-            sent = {k for k in ITEM if not any(w.startswith(f"{k}:") for w in waiting)}
+            sent = {k for k in due if not any(w.startswith(f"{k}:") for w in waiting)}
             results.append(CheckResult("generation_published", "blocking" if not sent else "warn", False,
                                        {"waiting": waiting, "deadline_utc": iso_utc(deadline)}))
-            for kind in sorted(set(ITEM) - sent):
+            for kind in sorted(set(due) - sent):
                 results += [CheckResult(f"{c.check_name}_{kind}", c.severity, c.passed, c.metrics)
                             for c in gen.series_checks(gen.empty_frame(), kind, market, zone, day)]
             if not sent:
@@ -112,7 +116,7 @@ def make_generation_task(market: Market, zone: str, *, opener=None, now: Callabl
             return mats, results
         cur = ctx.resolve_input(f"silver.{ds}", ctx.partition_key)
         previous = pl.read_parquet(absolute_path(ctx.lake_root, cur["uri"])) if cur else None
-        out_df = vintages.carry_vintages(pl.concat(frames), previous)
+        out_df = vintages.carry_vintages(pl.concat(frames), previous, due)
         results.append(vintages.vintages_superset_check(out_df, previous))
         out = attempt_dir(ctx.lake_root, "silver", ds, "date", ctx.partition_key, ctx.attempt_id) / "part-0.parquet"
         write_parquet_atomic(out_df, out)

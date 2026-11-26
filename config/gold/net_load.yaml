@@ -1,7 +1,10 @@
 # Gold net load and generation mix definitions (ADR-B10, ADR-B09). Loaded by
-# pipelines/atlas_pipelines/gold/net_load.py. status proposed: the owner confirms (docs/data/gold.md).
+# pipelines/atlas_pipelines/gold/net_load.py. Confirmed by the owner 2026-11-27 (docs/data/gold.md):
+# residual load = demand (ENTSO-E total load, as reported) - solar - wind; forecast side uses only
+# vintages known by the start of the local day; a gap in any wind/solar series empties its
+# intervals; a zone that never sends solar and isn't required for it subtracts 0.
 version: 1
-status: proposed
+status: confirmed
 
 # net_load = demand - solar - wind, per kind (actual, forecast) and interval.
 # Declared inputs: demand, plus every generation-direction series of these types present that
