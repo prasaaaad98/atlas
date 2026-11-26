@@ -56,12 +56,12 @@ def test_real_day_maps_every_fuel_and_hour(name):
     rows = rows_of(name)
     df, unknown = fuel.parse(rows, M, ba, day, FETCHED, "x", MAP)
     assert unknown == set() and blocking(fuel.checks(df, rows, unknown, day, MAP)) == []
-    codes = sorted(set(df["source_fuel_code"].to_list()))
+    codes = sorted(set(df["source_type"].to_list()))
     assert df.height == 24 * len(codes)
     raw = {(r["fueltype"], r["period"]): r["value"] for r in rows}
     for r in df.iter_rows(named=True):
-        assert MAP[r["source_fuel_code"]].fuel_type == r["fuel_type"]
-        assert r["generation_mw"] == float(raw[(r["source_fuel_code"], r["interval_end_utc"].strftime("%Y-%m-%dT%H"))])
+        assert MAP[r["source_type"]].fuel_type == r["fuel_type"] and r["direction"] == "net"
+        assert r["generation_mw"] == float(raw[(r["source_type"], r["interval_end_utc"].strftime("%Y-%m-%dT%H"))])
 
 
 def test_every_code_in_the_saved_data_is_mapped():
@@ -105,7 +105,7 @@ def test_negative_net_generation_is_counted_not_fixed():
 
 
 def test_mapping_config_is_validated(tmp_path):
-    text = (REPO / "config" / "fuel_types.yaml").read_text(encoding="utf-8")
+    text = (REPO / "config" / "mappings" / "fuel_types.yaml").read_text(encoding="utf-8")
     bad = tmp_path / "f.yaml"
     bad.write_text(text.replace("SUN: {fuel_type: solar", "SUN: {fuel_type: sunshine"), encoding="utf-8")
     with pytest.raises(fuels.FuelConfigError, match="unknown fuel type"):
@@ -148,7 +148,7 @@ def test_pipeline_publishes_generation_and_stores_no_key(lake, monkeypatch):
     assert r.status == "SUCCEEDED", [(t.task, t.error) for t in r.tasks]
     ptr = read_pointer(lake, "silver.generation__us_ba_ciso", "2026-11-18")
     df = pl.read_parquet(Path(lake) / ptr["uri"])
-    assert df.height == ptr["row_count"] and set(df["fuel_type"]) >= {"solar", "wind", "gas", "nuclear", "hydro"}
+    assert df.height == ptr["row_count"] and set(df["fuel_type"]) >= {"solar", "wind_onshore", "gas", "nuclear", "hydro"}
     for f in Path(lake).rglob("*"):
         if f.is_file():
             assert KEY.encode() not in f.read_bytes(), f

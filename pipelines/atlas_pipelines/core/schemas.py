@@ -110,9 +110,11 @@ DEMAND: dict[str, tuple[pl.DataType, bool]] = {
     "source_uri": (pl.String, False),
 }
 
-# silver.generation (PHASE_AB_PLAN.md §3.3): demand's columns with fuel_type and
-# generation_mw. fuel_type is canonical (config/fuel_types.yaml); source_fuel_code keeps
-# the source's own code for lineage. Key adds fuel_type.
+# silver.generation (PHASE_AB_PLAN.md §3.3, ADR-B04): demand's columns with fuel_type and
+# generation_mw. fuel_type is canonical (config/mappings/fuel_types.yaml); source_type keeps
+# the source's own code (B16, SUN) so mapping never loses detail. direction: generation |
+# consumption (storage charging, a separate source series; value positive) | net (one signed
+# series, EIA-930). Key: (kind, interval_start_utc, source_type, direction, fetched_at_utc).
 GENERATION: dict[str, tuple[pl.DataType, bool]] = {
     "market": (pl.String, False),
     "zone": (pl.String, False),
@@ -122,9 +124,10 @@ GENERATION: dict[str, tuple[pl.DataType, bool]] = {
     "local_date": (pl.Date, False),
     "local_hour": (pl.Int8, False),
     "fuel_type": (pl.String, False),
-    "source_fuel_code": (pl.String, False),
-    "generation_mw": (pl.Float64, True),      # NET generation, average MW; may be negative (station use, charging)
-    "kind": (pl.String, False),               # actual (EIA-930 has no fuel forecasts)
+    "source_type": (pl.String, False),
+    "direction": (pl.String, False),          # generation | consumption | net
+    "generation_mw": (pl.Float64, True),      # average MW as sent; `net` rows may be negative (station use, charging)
+    "kind": (pl.String, False),               # actual | forecast (EIA-930 has no fuel forecasts)
     "issued_at_utc": (UTC, True),
     "horizon_minutes": (pl.Int32, True),
     "fetched_at_utc": (UTC, False),

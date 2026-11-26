@@ -6,11 +6,10 @@ and the wind/solar forecast known before the day (point in time, §3.4a).
 Who calls it: defs/entsoe_generation.py; tests on real saved documents (local-only fixtures).
 
 Documents (GL_MarketDocument; parsed by load.parse_document): one TimeSeries per production
-type (MktPSRType/psrType, mapped via config/fuel_types.yaml `entsoe`). Guide, 16.1.B&C: "Time
+type (MktPSRType/psrType, mapped via config/mappings/fuel_types.yaml `entsoe`). Guide, 16.1.B&C: "Time
 series with inBiddingZone_Domain attribute reflects Generation values while outBiddingZone_Domain
 reflects Consumption values." Consumption (pumping B10, storage charging B25) is kept as its own
-rows: generation_mw = −quantity, source_fuel_code "<code>/consumption", so a sum per hour is net
-and nothing is netted silently.
+rows with direction "consumption" and the value as sent (positive); never netted (ADR-B04).
 Invariants: every series maps to a canonical type (unknown blocks, never defaults); every series
 covers the whole local day at its resolution (else retried, then blocks); nothing is filled.
 """
@@ -28,9 +27,13 @@ from atlas_pipelines.sources import fuels
 from atlas_pipelines.sources.entsoe import day_ahead as da
 from atlas_pipelines.sources.entsoe import load
 
-CODE_VERSION = "entsoe_generation-1"
+CODE_VERSION = "entsoe_generation-2"
 DOC = {"actual": ("A75", "A16"), "forecast": ("A69", "A01")}
-CONSUMPTION = "/consumption"
+
+
+# A series is one source code in one direction: "B10" (generating) and "B10/consumption" (pumping).
+SERIES = (pl.col("source_type") + pl.when(pl.col("direction") == "consumption").then(pl.lit("/consumption"))
+          .otherwise(pl.lit(""))).alias("series")
 
 
 def _direction(s: load.LoadSeries, eic: str) -> str | None:
@@ -56,7 +59,6 @@ def build_silver(doc: load.LoadDocument, kind: str, market: Market, zone: str, l
         if code not in mapping:
             unknown.add(code)
             continue
-        sign = -1.0 if direction == "consumption" else 1.0
         for period in s.periods:
             for _, a, b, value in da.expand(period, s.curve_type):
                 if not (start <= a < end):
@@ -64,15 +66,14 @@ def build_silver(doc: load.LoadDocument, kind: str, market: Market, zone: str, l
                 loc = a.astimezone(market.tz)
                 rows.append({"market": market.id, "zone": zone, "interval_start_utc": a, "interval_end_utc": b,
                              "interval_minutes": period.minutes, "local_date": loc.date(), "local_hour": loc.hour,
-                             "fuel_type": mapping[code].fuel_type,
-                             "source_fuel_code": code + (CONSUMPTION if direction == "consumption" else ""),
-                             "generation_mw": sign * value, "kind": kind, "issued_at_utc": None,
+                             "fuel_type": mapping[code].fuel_type, "source_type": code, "direction": direction,
+                             "generation_mw": value, "kind": kind, "issued_at_utc": None,
                              "horizon_minutes": None, "fetched_at_utc": fetched_at,
                              "availability_assumption": availability if kind == "forecast" else None,
                              "source_uri": source_uri})
     schema = {c: t for c, (t, _) in GENERATION.items()}
     df = pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
-    return df.sort("source_fuel_code", "interval_start_utc"), unknown
+    return df.sort("source_type", "direction", "interval_start_utc"), unknown
 
 
 def checks(df: pl.DataFrame, doc: load.LoadDocument, kind: str, market: Market, zone: str, local_date: date,
@@ -82,14 +83,13 @@ def checks(df: pl.DataFrame, doc: load.LoadDocument, kind: str, market: Market, 
     units = sorted({str(s.unit) for s in doc.series})
     start, end = market.day_bounds_utc(local_date)
     span_min = (end - start).total_seconds() / 60
-    per = df.group_by("source_fuel_code").agg(pl.len().alias("n"), pl.col("interval_minutes").first().alias("m"),
+    per = df.with_columns(SERIES).group_by("series").agg(pl.len().alias("n"), pl.col("interval_minutes").first().alias("m"),
                                               pl.col("interval_minutes").n_unique().alias("res"),
                                               pl.col("generation_mw").null_count().alias("nulls"))
-    short = sorted(r["source_fuel_code"] for r in per.iter_rows(named=True)
+    short = sorted(r["series"] for r in per.iter_rows(named=True)
                    if r["res"] != 1 or r["n"] != span_min / r["m"] or r["nulls"])
-    gen = df.filter(~pl.col("source_fuel_code").str.ends_with(CONSUMPTION))
-    neg = gen.filter((pl.col("generation_mw") < 0) &
-                     pl.col("source_fuel_code").map_elements(lambda c: mapping[c].negative == "warn", return_dtype=pl.Boolean))
+    warn_codes = [c for c, m in mapping.items() if m.negative == "warn"]
+    neg = df.filter((pl.col("generation_mw") < 0) & pl.col("source_type").is_in(warn_codes)).with_columns(SERIES)
     return [
         schema_check(df, GENERATION, "generation"),
         CheckResult("document_is_requested", "blocking", (doc.doc_type, doc.process_type) == DOC[kind],
@@ -98,14 +98,14 @@ def checks(df: pl.DataFrame, doc: load.LoadDocument, kind: str, market: Market, 
                     {"zone_eic": eic, "other_domains": foreign, "series": per.height}),
         CheckResult("unit_is_mw", "blocking", units == [load.UNIT], {"units": units}),
         CheckResult("production_type_mapped", "blocking", not unknown,
-                    {"unknown_codes": sorted(unknown), "action": "map in config/fuel_types.yaml (entsoe)"}),
+                    {"unknown_codes": sorted(unknown), "action": "map in config/mappings/fuel_types.yaml (entsoe)"}),
         CheckResult("series_day_complete", "blocking", not short and per.height > 0,
                     {"series": per.height, "incomplete": short}),
         CheckResult("primary_key_unique", "blocking",
-                    df.height == df.select("interval_start_utc", "source_fuel_code", "fetched_at_utc").unique().height, {}),
+                    df.height == df.select("interval_start_utc", "source_type", "direction", "fetched_at_utc").unique().height, {}),
         CheckResult("forecast_issue_time_policy", "blocking", df["issued_at_utc"].null_count() == df.height,
                     {"rule": "ENTSO-E publishes no issue time: issued_at_utc null, fetched_at_utc recorded"}),
-        # Counted, never fixed (as E3): negative generation of a type that shouldn't be negative.
+        # Counted, never fixed (as E3): a negative value in a series that shouldn't have one.
         CheckResult("negative_generation", "warn", neg.is_empty(),
-                    {"rows": neg.height, "codes": sorted(set(neg["source_fuel_code"].to_list()))}),
+                    {"rows": neg.height, "series": sorted(set(neg["series"].to_list()))}),
     ]

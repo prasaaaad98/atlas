@@ -2,7 +2,8 @@
 
 Why it exists: hourly net generation by fuel per BA drives the net-load and
 renewable-share analysis (E7) and Phase D features. Source codes (SUN, WND, NG, …)
-are mapped to canonical fuel types through config/fuel_types.yaml.
+are mapped to canonical fuel types through config/mappings/fuel_types.yaml; the EIA code is kept
+as source_type, and every row is direction "net" (EIA-930 sends one signed net series).
 Who calls it: defs/eia.py (eia930_fuel_daily); tests with real saved responses.
 
 Same time rules as region.py: `period` is UTC and hour-ending; a UTC day D is
@@ -62,7 +63,7 @@ def parse(rows: list[dict], market: Market, ba: str, day: date | None, fetched_a
         loc = start.astimezone(tz)
         out.append({"market": market.id, "zone": ba, "interval_start_utc": start, "interval_end_utc": end,
                     "interval_minutes": 60, "local_date": loc.date(), "local_hour": loc.hour,
-                    "fuel_type": m.fuel_type, "source_fuel_code": code, "generation_mw": client.to_number(r.get("value")),
+                    "fuel_type": m.fuel_type, "source_type": code, "direction": "net", "generation_mw": client.to_number(r.get("value")),
                     "kind": "actual", "issued_at_utc": None, "horizon_minutes": None, "fetched_at_utc": fetched_at,
                     "availability_assumption": None, "source_uri": source_uri})
     schema = {c: t for c, (t, _) in GENERATION.items()}
@@ -74,16 +75,16 @@ def checks(df: pl.DataFrame, rows: list[dict], unknown: set[str], day: date,
            mapping: dict[str, fuels.FuelCode]) -> list[CheckResult]:
     expected = {datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=h) for h in range(24)}
     units = sorted({r.get("value-units") for r in rows})
-    dupes = df.height - df.select("interval_start_utc", "source_fuel_code").unique().height
+    dupes = df.height - df.select("interval_start_utc", "source_type").unique().height
     gaps = {}
-    for code in sorted(set(df["source_fuel_code"].to_list())):
-        have = {s for s, v in zip(*[df.filter(pl.col("source_fuel_code") == code)[c].to_list()
+    for code in sorted(set(df["source_type"].to_list())):
+        have = {s for s, v in zip(*[df.filter(pl.col("source_type") == code)[c].to_list()
                                     for c in ("interval_start_utc", "generation_mw")]) if v is not None}
         if expected - have:
             gaps[code] = [iso_utc(s) for s in sorted(expected - have)[:5]] + ([f"+{len(expected - have) - 5} more"] if len(expected - have) > 5 else [])
     warn_codes = {c for c, m in mapping.items() if m.negative == "warn"}
-    neg = df.filter(pl.col("source_fuel_code").is_in(list(warn_codes)) & (pl.col("generation_mw") < 0))
-    neg_by = dict(neg.group_by("source_fuel_code").len().iter_rows()) if neg.height else {}
+    neg = df.filter(pl.col("source_type").is_in(list(warn_codes)) & (pl.col("generation_mw") < 0))
+    neg_by = dict(neg.group_by("source_type").len().iter_rows()) if neg.height else {}
     solar = df.filter(pl.col("fuel_type") == "solar")
     peak = solar["generation_mw"].abs().max() if solar.height else None
     night = solar.filter(pl.col("local_hour").is_in(list(NIGHT_LOCAL_HOURS)))
@@ -91,7 +92,7 @@ def checks(df: pl.DataFrame, rows: list[dict], unknown: set[str], day: date,
     return [
         schema_check(df, GENERATION, "generation"),
         CheckResult("fuel_codes_mapped", "blocking", not unknown,
-                    {"unknown_codes": sorted(unknown), "action": "map in config/fuel_types.yaml or list as unmapped"}),
+                    {"unknown_codes": sorted(unknown), "action": "map in config/mappings/fuel_types.yaml or list as unmapped"}),
         CheckResult("units_megawatthours", "blocking", units == [UNIT] or (not rows), {"units": units}),
         CheckResult("primary_key_unique", "blocking", dupes == 0, {"duplicates": dupes}),
         CheckResult("fuels_reported", "blocking", df.height > 0, {"rows": df.height}),

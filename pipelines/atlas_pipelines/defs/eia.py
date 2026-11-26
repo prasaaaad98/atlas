@@ -157,7 +157,7 @@ def generation_revision_check(new: pl.DataFrame, previous: pl.DataFrame | None) 
     """Warn when a value changed since the current silver (EIA-930 is revised)."""
     if previous is None or previous.is_empty():
         return CheckResult("source_revision", "warn", True, {"previous": None})
-    key = ["interval_start_utc", "source_fuel_code"]
+    key = ["interval_start_utc", "source_type"]
     changed = new.select(key + ["generation_mw"]).join(
         previous.select(key + [pl.col("generation_mw").alias("previous_mw")]), on=key
     ).filter(pl.col("generation_mw").ne_missing(pl.col("previous_mw")))
@@ -194,7 +194,7 @@ def make_fuel_task(market: Market, ba: str, *, opener=None, now: Callable[[], da
         if fuel.incomplete_only(data_checks) and now() < region.publication_deadline(market, day):
             raise RetryableTaskError("source_not_ready", f"eia fuel {ba} {ctx.partition_key}: hours still missing",
                                      retry_after_s=1800, materializations=mats, checks=results + data_checks)
-        mats.append(_write(ctx, gen, gen_ds, "generation-1"))
+        mats.append(_write(ctx, gen, gen_ds, "generation-2"))
         return mats, results + data_checks
 
     return TaskDef(f"ingest_{slug}", ingest, asset_outputs=(bronze_asset, f"silver.{gen_ds}"),

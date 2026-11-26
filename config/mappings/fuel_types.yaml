@@ -1,0 +1,97 @@
+# Canonical generation types (silver.generation.fuel_type) and per-source mappings, version 2.
+# Owner decision 2026-11-26 (ADR-B04): one shared `fuel_type` list for every market; each
+# adapter maps its source codes into it. Rules:
+#   - Every silver row also keeps the source's own code (`source_type`, e.g. B16, SUN):
+#     mapping never loses detail.
+#   - Useful splits are kept in silver (wind onshore/offshore, three hydro types); grouping
+#     happens in gold via `group` (renewable | fossil | nuclear | storage | other).
+#   - A code not listed fails a blocking check (quarantine); it is never mapped to `other`.
+# Loaded by pipelines/atlas_pipelines/sources/fuels.py.
+version: 2
+
+groups: [renewable, fossil, nuclear, storage, other]
+
+# type: {group}. Types and ENTSO-E codes: owner's table (2026-11-26). Group assignments for
+# waste (other) and peat (fossil) are ours, status proposed.
+canonical:
+  biomass: {group: renewable}
+  lignite: {group: fossil}
+  coal_gas: {group: fossil}
+  gas: {group: fossil}
+  coal: {group: fossil}
+  oil: {group: fossil}
+  oil_shale: {group: fossil}
+  peat: {group: fossil}
+  geothermal: {group: renewable}
+  hydro_pumped_storage: {group: storage}
+  hydro_run_of_river: {group: renewable}
+  hydro_reservoir: {group: renewable}
+  # EIA-930 "WAT" is conventional hydro with no run-of-river/reservoir split; mapping it to
+  # either would invent detail, so it keeps its own type (proposed, 2026-11-26).
+  hydro: {group: renewable}
+  marine: {group: renewable}
+  nuclear: {group: nuclear}
+  other_renewable: {group: renewable}
+  solar: {group: renewable}
+  waste: {group: other}
+  wind_offshore: {group: renewable}
+  wind_onshore: {group: renewable}
+  battery_storage: {group: storage}
+  # Storage of unknown technology (EIA-930 UES): not assumed to be batteries.
+  other_storage: {group: storage}
+  other: {group: other}
+
+sources:
+  # ENTSO-E psrType (official API guide). Mapping: owner, 2026-11-26. Codes seen in the saved
+  # A75 documents: DE_LU 15, ES 19 (+B25), SE3 6. Storage sends a generation series and a
+  # consumption series; both are stored, positive, with a `direction` column (never netted).
+  entsoe:
+    B01: {fuel_type: biomass, negative: warn, name: Biomass}
+    B02: {fuel_type: lignite, negative: warn, name: Fossil Brown coal/Lignite}
+    B03: {fuel_type: coal_gas, negative: warn, name: Fossil Coal-derived gas}
+    B04: {fuel_type: gas, negative: warn, name: Fossil Gas}
+    B05: {fuel_type: coal, negative: warn, name: Fossil Hard coal}
+    B06: {fuel_type: oil, negative: warn, name: Fossil Oil}
+    B07: {fuel_type: oil_shale, negative: warn, name: Fossil Oil shale}
+    B08: {fuel_type: peat, negative: warn, name: Fossil Peat}
+    B09: {fuel_type: geothermal, negative: warn, name: Geothermal}
+    B10: {fuel_type: hydro_pumped_storage, negative: warn, name: Hydro Pumped Storage}
+    B11: {fuel_type: hydro_run_of_river, negative: warn, name: Hydro Run-of-river and poundage}
+    B12: {fuel_type: hydro_reservoir, negative: warn, name: Hydro Water Reservoir}
+    B13: {fuel_type: marine, negative: warn, name: Marine}
+    B14: {fuel_type: nuclear, negative: warn, name: Nuclear}
+    B15: {fuel_type: other_renewable, negative: warn, name: Other renewable}
+    B16: {fuel_type: solar, negative: warn, name: Solar}
+    B17: {fuel_type: waste, negative: warn, name: Waste}
+    B18: {fuel_type: wind_offshore, negative: warn, name: Wind Offshore}
+    B19: {fuel_type: wind_onshore, negative: warn, name: Wind Onshore}
+    B20: {fuel_type: other, negative: warn, name: Other}
+    B25: {fuel_type: battery_storage, negative: warn, name: Energy storage}
+  entsoe_unmapped: {}
+
+  # EIA-930 fueltype. EIA reports NET generation in one signed series (direction `net`):
+  # negatives occur by definition (station use, storage charging). In the owner's saved samples
+  # (2026-11-26): SUN 108, OTH 70, UES 74, BAT 22, COL 12, OIL 8 negative hours.
+  # `negative: allowed` = expected; `warn` = counted, never blocked or fixed.
+  eia930:
+    BAT: {fuel_type: battery_storage, negative: allowed, name: Battery storage}
+    COL: {fuel_type: coal, negative: warn, name: Coal}
+    GEO: {fuel_type: geothermal, negative: warn, name: Geothermal}
+    NG:  {fuel_type: gas, negative: warn, name: Natural Gas}
+    NUC: {fuel_type: nuclear, negative: warn, name: Nuclear}
+    OIL: {fuel_type: oil, negative: warn, name: Petroleum}
+    OTH: {fuel_type: other, negative: allowed, name: Other}
+    PS:  {fuel_type: hydro_pumped_storage, negative: allowed, name: Pumped storage}   # owner, 2026-11-26
+    SUN: {fuel_type: solar, negative: warn, name: Solar}
+    UES: {fuel_type: other_storage, negative: allowed, name: Unknown energy storage}
+    WAT: {fuel_type: hydro, negative: warn, name: Hydro}
+    WND: {fuel_type: wind_onshore, negative: warn, name: Wind}                         # owner, 2026-11-26
+  # In EIA's full fueltype facet (owner's fixture run 2026-11-26) but not in any saved data of
+  # our BAs. Listed = known; if one appears in real data it still BLOCKS until mapped.
+  # Proposed (owner to confirm): SNB -> solar, WNB -> wind_onshore (plant with integrated
+  # battery), OES -> other_storage, UNK -> other.
+  eia930_unmapped:
+    OES: "Other energy storage: not seen in our BAs' saved data; mapping to confirm"
+    SNB: "Solar with integrated battery storage: not seen in our BAs' saved data; mapping to confirm"
+    UNK: "Unknown: not seen in our BAs' saved data; mapping to confirm"
+    WNB: "Wind with integrated battery storage: not seen in our BAs' saved data; mapping to confirm"

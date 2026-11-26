@@ -278,7 +278,7 @@ def main() -> None:
                 fetch(f"data__{child}__{freq}__{ba}__{day}", f"{route}/data", params)
         found[child]["ba_facet"] = ba_facet
     summary["rto_routes"] = found
-    # The complete list of EIA-930 fuel codes, for E3's mapping (config/fuel_types.yaml).
+    # The complete list of EIA-930 fuel codes, for E3's mapping (config/mappings/fuel_types.yaml).
     if "fuel-type-data" in found:
         fl = fetch("facet__electricity_rto_fuel-type-data__fueltype", "electricity/rto/fuel-type-data/facet/fueltype")
         summary["eia930_fuel_codes"] = [(v.get("id"), v.get("name"))

@@ -59,9 +59,9 @@ def test_day_publishes_by_type_and_forecast_vintages(lake, monkeypatch):
         assert r.status == "SUCCEEDED", [(x.task, x.error) for x in r.tasks]
     df = pl.read_parquet(Path(lake) / read_pointer(lake, "silver.generation__entsoe_se3", "2026-11-18")["uri"])
     actual = df.filter(pl.col("kind") == "actual")
-    assert set(actual["source_fuel_code"]) == {"B04", "B12", "B14", "B16", "B19", "B20"} and actual.height == 6 * 96
+    assert set(actual["source_type"]) == {"B04", "B12", "B14", "B16", "B19", "B20"} and actual.height == 6 * 96
     fc = df.filter(pl.col("kind") == "forecast")
-    assert set(fc["fuel_type"]) == {"solar", "wind"} and sorted(fc["fetched_at_utc"].unique().to_list()) == [t1, t2]
+    assert set(fc["fuel_type"]) == {"solar", "wind_onshore"} and sorted(fc["fetched_at_utc"].unique().to_list()) == [t1, t2]
     for f in Path(lake).rglob("*"):
         if f.is_file():
             assert TOKEN.encode() not in f.read_bytes(), f

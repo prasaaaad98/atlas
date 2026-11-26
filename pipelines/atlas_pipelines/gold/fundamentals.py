@@ -7,10 +7,12 @@ rebuilt; the same silver bytes give byte-identical Parquet (tested).
 Who calls it: defs/eia.py (fundamentals_<ba>, buildout_storage tasks); tests.
 
 Definitions (config/gold/fundamentals.yaml, docs/data/gold.md; status proposed):
-  net_load_mw      = demand − solar − wind; null if the BA reported no solar or no wind that day
+  net_load_mw      = demand − solar − wind (wind = wind_fuel_types, i.e. onshore + offshore);
+                     null if the BA reported no solar or no wind that day
   generation_mw    = sum of NET generation over every fuel the BA reported (storage included,
                      so charging hours lower it)
-  renewable_mw     = sum over reported fuels in the renewable set
+  renewable_mw     = sum over reported fuels whose gold group is in renewable_fuel_groups
+                     (config/mappings/fuel_types.yaml groups; ADR-B04)
   renewable_share  = renewable_mw / generation_mw (null if generation_mw <= 0)
 Invariants:
   - An incomplete demand or generation day produces no gold rows (blocking), never partial.
@@ -27,6 +29,7 @@ import yaml
 from atlas_pipelines.core import config
 from atlas_pipelines.core.schemas import FUNDAMENTALS_HOURLY, STORAGE_BUILDOUT, schema_check
 from atlas_pipelines.core.task import CheckResult
+from atlas_pipelines.sources import fuels
 
 DEFINITION_VERSION = "fundamentals-1 (proposed 2026-11-26)"
 BUILDOUT_VERSION = "storage_buildout-1 (proposed 2026-11-26)"
@@ -36,12 +39,16 @@ HOURS = 24
 def load_definitions(path: Path | None = None) -> dict:
     path = path or config.REPO_ROOT / "config" / "gold" / "fundamentals.yaml"
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    canonical = set((yaml.safe_load((config.REPO_ROOT / "config" / "fuel_types.yaml").read_text(encoding="utf-8"))
-                     .get("canonical") or {}))
-    for key in ("renewable_fuel_types", "net_load_subtracts"):
-        unknown = set(raw.get(key) or []) - canonical
-        if raw.get(key) is None or unknown:
+    canonical = fuels.load_canonical()
+    for key in ("solar_fuel_types", "wind_fuel_types"):
+        unknown = set(raw.get(key) or []) - set(canonical)
+        if not raw.get(key) or unknown:
             raise ValueError(f"{path}: {key} must list canonical fuel types; unknown {sorted(unknown)}")
+    groups = set(raw.get("renewable_fuel_groups") or [])
+    if not groups or groups - set(canonical.values()):
+        raise ValueError(f"{path}: renewable_fuel_groups must list groups of config/mappings/fuel_types.yaml")
+    # Derived once, so the computation and its tests read one list.
+    raw["renewable_fuel_types"] = sorted(t for t, g in canonical.items() if g in groups)
     return raw
 
 
@@ -70,10 +77,11 @@ def hourly(demand: pl.DataFrame, generation: pl.DataFrame, interchange: pl.DataF
     by_hour = generation.group_by("interval_start_utc").agg(
         pl.col("generation_mw").sum().alias("generation_mw"),
         pl.col("generation_mw").filter(pl.col("fuel_type").is_in(defs["renewable_fuel_types"])).sum().alias("renewable_mw"),
-        *[pl.col("generation_mw").filter(pl.col("fuel_type") == f).sum().alias(f"{f}_mw") for f in ("solar", "wind")],
+        *[pl.col("generation_mw").filter(pl.col("fuel_type").is_in(defs[f"{f}_fuel_types"])).sum().alias(f"{f}_mw")
+          for f in ("solar", "wind")],
     )
     for f in ("solar", "wind"):
-        if f not in reported:  # not reported that day: unknown, not zero
+        if not reported & set(defs[f"{f}_fuel_types"]):  # not reported that day: unknown, not zero
             by_hour = by_hour.with_columns(pl.lit(None, dtype=pl.Float64).alias(f"{f}_mw"))
     df = actual.select("market", "zone", "interval_start_utc", "interval_end_utc", "local_date", "local_hour",
                        "demand_mw").join(by_hour, on="interval_start_utc", how="left")
@@ -95,7 +103,8 @@ def hourly(demand: pl.DataFrame, generation: pl.DataFrame, interchange: pl.DataF
         schema_check(df, FUNDAMENTALS_HOURLY, "fundamentals_hourly"),
         CheckResult("interchange_hours_present", "warn", missing_inter == 0,
                     {"missing_hours": missing_inter, "interchange_partition": interchange is not None}),
-        CheckResult("solar_and_wind_reported", "warn", {"solar", "wind"} <= reported,
+        CheckResult("solar_and_wind_reported", "warn",
+                    bool(reported & set(defs["solar_fuel_types"])) and bool(reported & set(defs["wind_fuel_types"])),
                     {"reported_fuels": sorted(reported)}),
         CheckResult("renewable_types_reported", "warn", not absent, {"not_reported": absent}),
     ]

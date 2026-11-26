@@ -110,7 +110,7 @@ def make_generation_task(market: Market, zone: str, *, opener=None, now: Callabl
         out = attempt_dir(ctx.lake_root, "silver", ds, "date", ctx.partition_key, ctx.attempt_id) / "part-0.parquet"
         write_parquet_atomic(out_df, out)
         mats.append(Materialization(f"silver.{ds}", ctx.partition_key, relative_uri(ctx.lake_root, out), out_df.height,
-                                    sha256_file(out), "generation-1", gen.CODE_VERSION))
+                                    sha256_file(out), "generation-2", gen.CODE_VERSION))
         return mats, results
 
     return TaskDef(f"generation_{slug}", ingest,

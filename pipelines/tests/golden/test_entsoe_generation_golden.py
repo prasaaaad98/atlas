@@ -1,7 +1,8 @@
 """Golden tests: real ENTSO-E generation documents (A75 actual per type, A69 wind/solar day-ahead
 forecast) from the owner's `make fixture-entsoe-fundamentals` (2026-11-26; local-only, skip in CI).
 
-Per document: every row equals its raw point (sign: consumption series negative), each series
+Per document: every row equals its raw point (as sent; consumption series kept with direction
+"consumption", positive), each series
 covers the local day at its resolution, every production type maps, all blocking checks pass.
 Failure cases change one thing in a real document.
 """
@@ -34,7 +35,7 @@ def meta(path):
 def run(raw, zone, day, kind):
     doc = load.parse_document(raw)
     df, unknown = gen.build_silver(doc, kind, M, zone, day, FETCHED, "fixture", MAP, None)
-    return df, gen.checks(df, doc, kind, M, zone, day, unknown, MAP)
+    return df.with_columns(gen.SERIES), gen.checks(df, doc, kind, M, zone, day, unknown, MAP)
 
 
 def failed(cs):
@@ -68,8 +69,8 @@ REAL_GAPS = {
 
 def missing(df, code, zone, day):
     start, end = M.day_bounds_utc(day)
-    have = set(df.filter(df["source_fuel_code"] == code)["interval_start_utc"].to_list())
-    m = df.filter(df["source_fuel_code"] == code)["interval_minutes"][0]
+    have = set(df.filter(df["series"] == code)["interval_start_utc"].to_list())
+    m = df.filter(df["series"] == code)["interval_minutes"][0]
     return sorted({start + timedelta(minutes=m * i) for i in range(int((end - start).total_seconds() // 60 // m))} - have)
 
 
@@ -81,38 +82,44 @@ def test_real_document_parses_completely_and_exactly(path):
     if path.stem in REAL_GAPS:
         codes, gap = REAL_GAPS[path.stem]
         assert failed(cs) == ["series_day_complete"]
-        gappy = set(df["source_fuel_code"]) if codes == "*" else set(codes)
+        gappy = set(df["series"]) if codes == "*" else set(codes)
         for code in gappy:
             assert missing(df, code, zone, day) == gap, code
-        others = set(df["source_fuel_code"]) - gappy
+        others = set(df["series"]) - gappy
         assert all(missing(df, c, zone, day) == [] for c in others)
     else:
         assert failed(cs) == [], [c for c in cs if not c.passed and c.severity == "blocking"]
     pts = raw_points(raw.decode())
     last = {}
     for r in df.iter_rows(named=True):
-        code = r["source_fuel_code"]
+        code = r["series"]
         last[code] = pts.get((code, r["interval_start_utc"]), last.get(code))  # A03 carry within a series
-        expected = -last[code] if code.endswith("/consumption") else last[code]
-        assert r["generation_mw"] == expected, (code, r["interval_start_utc"])
-    assert set(df["source_fuel_code"].str.replace("/consumption", "")) == {c.split("/")[0] for c, _ in pts}
+        assert r["generation_mw"] == last[code], (code, r["interval_start_utc"])  # as sent, no sign change
+        assert r["fuel_type"] == MAP[r["source_type"]].fuel_type
+    assert set(df["series"]) == {c for c, _ in pts}
 
 
 def by(zone, day, kind):
     return next(p for p in CASES if meta(p) == (zone, date.fromisoformat(day), kind))
 
 
-def test_pumping_is_kept_as_negative_consumption_not_netted():
+def test_storage_is_kept_in_both_directions_positive_not_netted():
     df, _ = run(by("ES", "2026-11-18", "actual").read_bytes(), "ES", date(2026, 11, 18), "actual")
-    pumped = df.filter(df["source_fuel_code"] == "B10/consumption")
-    assert pumped.height > 0 and (pumped["generation_mw"] <= 0).all() and set(pumped["fuel_type"]) == {"pumped_storage"}
-    assert df.filter(df["source_fuel_code"] == "B10").height == pumped.height  # generation side kept separately
+    for code, fuel_type in (("B10", "hydro_pumped_storage"), ("B25", "battery_storage")):
+        s = df.filter(df["source_type"] == code)
+        pumping, producing = (s.filter(s["direction"] == d) for d in ("consumption", "generation"))
+        assert pumping.height > 0 and pumping.height == producing.height, code
+        assert (pumping["generation_mw"] >= 0).all() and set(s["fuel_type"]) == {fuel_type}, code
+    # ES pumped hydro really pumped that day (the load is there, not netted away); ES B25
+    # charging is 0 MW in every quarter-hour of this real document, kept as sent.
+    pumping = df.filter((df["source_type"] == "B10") & (df["direction"] == "consumption"))
+    assert pumping["generation_mw"].sum() > 0
 
 
 def test_new_production_type_blocks():
     raw = by("SE3", "2026-11-18", "actual").read_bytes().replace(b"<psrType>B14<", b"<psrType>B99<")
     df, cs = run(raw, "SE3", date(2026, 11, 18), "actual")
-    assert "production_type_mapped" in failed(cs) and "B99" not in set(df["source_fuel_code"])
+    assert "production_type_mapped" in failed(cs) and "B99" not in set(df["source_type"])  # never "other"
 
 
 def test_forecast_read_as_actual_blocks():
@@ -128,6 +135,6 @@ def test_another_zones_document_blocks():
 def test_dst_days_follow_each_series_resolution():
     for day, quarter_hours in (("2026-03-29", 92), ("2025-10-26", 100)):
         df, _ = run(by("DE_LU", day, "actual").read_bytes(), "DE_LU", date.fromisoformat(day), "actual")
-        assert set(df.group_by("source_fuel_code").len()["len"]) == {quarter_hours}
+        assert set(df.group_by("series").len()["len"]) == {quarter_hours}
     df, _ = run(by("SE3", "2025-10-26", "actual").read_bytes(), "SE3", date(2025, 10, 26), "actual")
-    assert set(df["interval_minutes"]) == {60} and set(df.group_by("source_fuel_code").len()["len"]) == {25}
+    assert set(df["interval_minutes"]) == {60} and set(df.group_by("series").len()["len"]) == {25}

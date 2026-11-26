@@ -3,10 +3,12 @@
 version: 1
 status: proposed
 
-# Canonical fuel types (config/fuel_types.yaml) counted as renewable. Storage is excluded:
-# it moves energy, it doesn't produce it. Biomass/waste is inside "other" in EIA-930, so it
-# can't be counted here without guessing.
-renewable_fuel_types: [wind, solar, hydro, geothermal]
+# Renewable = every canonical type whose group is listed (config/mappings/fuel_types.yaml,
+# ADR-B04). Storage is its own group: it moves energy, it doesn't produce it. For EIA-930 this
+# is wind, solar, hydro, geothermal (biomass/waste sit inside "other" there and can't be
+# counted without guessing).
+renewable_fuel_groups: [renewable]
 
-# net_load = demand - solar - wind (PLAN_EIA_TRACK.md E7).
-net_load_subtracts: [solar, wind]
+# net_load = demand - solar - wind (PLAN_EIA_TRACK.md E7); wind = onshore + offshore.
+solar_fuel_types: [solar]
+wind_fuel_types: [wind_onshore, wind_offshore]

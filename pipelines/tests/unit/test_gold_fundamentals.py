@@ -105,7 +105,7 @@ def test_gold_hour_by_hour_equals_its_definition_on_silver(lake, monkeypatch, ba
         assert row["generation_mw"] == pytest.approx(hour["generation_mw"].sum())
         assert row["renewable_mw"] == pytest.approx(sum(fuel(f) for f in DEFS["renewable_fuel_types"]))
         if row["solar_mw"] is not None and row["wind_mw"] is not None:
-            assert row["net_load_mw"] == pytest.approx(row["demand_mw"] - fuel("solar") - fuel("wind"))
+            assert row["net_load_mw"] == pytest.approx(row["demand_mw"] - fuel("solar") - fuel("wind_onshore"))
     ptr = read_pointer(lake, f"silver.demand__us_ba_{slug}", day)
     assert set(g["demand_source_hash"]) == {ptr["content_hash"]}
 
@@ -188,7 +188,8 @@ def test_tampered_silver_is_refused(lake, monkeypatch):
 
 def test_definitions_are_validated(tmp_path):
     bad = tmp_path / "f.yaml"
-    bad.write_text("version: 1\nrenewable_fuel_types: [wind, peat_moss]\nnet_load_subtracts: [solar, wind]\n", encoding="utf-8")
+    bad.write_text("version: 1\nrenewable_fuel_groups: [renewable]\nsolar_fuel_types: [solar]\n"
+                   "wind_fuel_types: [wind_onshore, peat_moss]\n", encoding="utf-8")
     with pytest.raises(ValueError, match="peat_moss"):
         fundamentals.load_definitions(bad)
 
