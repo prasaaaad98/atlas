@@ -38,16 +38,18 @@ products:
 # ---------------------------------------------------------------------------
 # Adapter section: read and validated only by sources/eia/ (E1).
 eia:
-  # Per BA. `tz` drives derived local columns only. Status `assumed` until E1
-  # confirms it from saved responses (the API's local-hourly frequency carries the
-  # offset each BA reports). MISO in particular: confirm whether EIA-930 reports
-  # it in Central prevailing time.
+  # Per BA. `tz` drives derived local columns only. `verified` = matched against
+  # EIA's own local-hourly offsets for every hour of a normal day and three DST days
+  # (owner's fixture run 2026-11-26; test_local_hourly_offsets_match_the_registry_zone).
+  # The others stay `assumed` until sampled (MISO: confirm Central prevailing time).
+  # Note: EIA's local-hourly label carries the offset at the hour's END; our
+  # local_date/local_hour use the hour's START (hour ending 01:00 … 24:00 convention).
   # price_source: none | caiso_oasis | pjm_dataminer | ercot_api (PLAN_EIA_TRACK.md §8).
   # backfill_start: our coverage choice (plan E6), not EIA's data start.
   bas:
-    CISO: {name: California ISO, operator: CAISO, tz: America/Los_Angeles, tz_status: assumed, price_source: none, price_source_status: "pending: CAISO OASIS reachability and terms (investigate only)", backfill_start: 2022-04-01}
-    ERCO: {name: Electric Reliability Council of Texas, operator: ERCOT, tz: America/Chicago, tz_status: assumed, price_source: none, price_source_status: "on hold: ERCOT API restricted outside the US", backfill_start: 2022-04-01}
-    PJM:  {name: PJM Interconnection, operator: PJM, tz: America/New_York, tz_status: assumed, price_source: none, price_source_status: "on hold: Data Miner needs an approved key; internal use only", backfill_start: 2022-04-01}
+    CISO: {name: California ISO, operator: CAISO, tz: America/Los_Angeles, tz_status: verified, price_source: none, price_source_status: "pending: CAISO OASIS reachability and terms (investigate only)", backfill_start: 2022-04-01}
+    ERCO: {name: Electric Reliability Council of Texas, operator: ERCOT, tz: America/Chicago, tz_status: verified, price_source: none, price_source_status: "on hold: ERCOT API restricted outside the US", backfill_start: 2022-04-01}
+    PJM:  {name: PJM Interconnection, operator: PJM, tz: America/New_York, tz_status: verified, price_source: none, price_source_status: "on hold: Data Miner needs an approved key; internal use only", backfill_start: 2022-04-01}
     MISO: {name: Midcontinent ISO, operator: MISO, tz: America/Chicago, tz_status: assumed, price_source: none, backfill_start: 2022-04-01}
     NYIS: {name: New York ISO, operator: NYISO, tz: America/New_York, tz_status: assumed, price_source: none, backfill_start: 2022-04-01}
     ISNE: {name: ISO New England, operator: ISO-NE, tz: America/New_York, tz_status: assumed, price_source: none, backfill_start: 2022-04-01}

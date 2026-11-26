@@ -224,3 +224,28 @@ def test_interchange_gaps_never_hold_back_complete_demand(lake, monkeypatch):
     assert ingest.status == "SUCCEEDED" and read_pointer(lake, "silver.demand__us_ba_pjm", "2025-11-02") is not None
     assert (inter.status, inter.error_class) == ("FAILED_TERMINAL", "data_check_failed") and "interchange_complete" in inter.error
     assert read_pointer(lake, "silver.interchange__us_ba_pjm", "2025-11-02") is None   # missing stays missing
+
+
+LOCAL = sorted(p.name for p in FX.glob("data__region-data__local-hourly__*.json")
+               if not p.name.endswith(".meta.json") and ok(p.name)) if FX.exists() else []
+
+
+@pytest.mark.skipif(not LOCAL, reason="no local-hourly samples saved")
+@pytest.mark.parametrize("name", LOCAL)
+def test_local_hourly_offsets_match_the_registry_zone(name):
+    # EIA's local-hourly frequency labels each hour with the BA's own UTC offset
+    # (taken at the hour's END). It must agree with the registry zone, and every value
+    # must equal the UTC-hourly value of the same hour (both hour-ending).
+    from zoneinfo import ZoneInfo
+    ba, day = parts(name)
+    tz = ZoneInfo(M.raw["eia"]["bas"][ba]["tz"])
+    local = [r for r in rows_of(name) if r["type"] == "D"]
+    utc_name = name.replace("local-hourly", "hourly")
+    utc = {r["period"]: r["value"] for r in rows_of(utc_name) if r["type"] == "D"} if ok(utc_name) else {}
+    for r in local:
+        label, offset = datetime.strptime(r["period"][:13], "%Y-%m-%dT%H"), int(r["period"][13:])
+        end_utc = (label - timedelta(hours=offset)).replace(tzinfo=UTC)
+        assert int(end_utc.astimezone(tz).utcoffset().total_seconds() // 3600) == offset, r["period"]
+        if utc:
+            assert utc[end_utc.strftime("%Y-%m-%dT%H")] == r["value"], r["period"]
+    assert M.raw["eia"]["bas"][ba]["tz_status"] == "verified"
