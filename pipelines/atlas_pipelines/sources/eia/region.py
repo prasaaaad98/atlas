@@ -33,6 +33,7 @@ import polars as pl
 
 from atlas_pipelines.core.markets import Market, iso_utc
 from atlas_pipelines.core.schemas import DEMAND, INTERCHANGE, schema_check
+from atlas_pipelines.core import vintages
 from atlas_pipelines.core.task import CheckResult
 from atlas_pipelines.sources.eia import client
 
@@ -100,14 +101,8 @@ def parse(rows: list[dict], market: Market, ba: str, day: date | None, fetched_a
     return d.sort("kind", "interval_start_utc"), i.sort("interval_start_utc"), ng
 
 
-def carry_vintages(new: pl.DataFrame, previous: pl.DataFrame | None) -> pl.DataFrame:
-    """Forecast vintages are appended, never overwritten (§3.4a): keep every earlier
-    forecast row (identified by fetched_at_utc) next to this fetch's rows. Actuals come
-    from the latest fetch only (a changed actual is a revision, warned on separately)."""
-    if previous is None or previous.is_empty():
-        return new
-    old = previous.filter((pl.col("kind") == "forecast") & (pl.col("fetched_at_utc") != new["fetched_at_utc"].max()))
-    return pl.concat([new, old.select(new.columns)]).sort("kind", "interval_start_utc", "fetched_at_utc")
+# Moved to core/vintages.py (shared with ENTSO-E, B4a); kept here for existing callers.
+carry_vintages = vintages.carry_vintages
 
 
 def _expected(day: date) -> set[datetime]:

@@ -28,7 +28,8 @@ REGISTRY = load_registry(REPO / "config" / "markets")
 M = REGISTRY["entsoe"]
 FX = FIXTURES / "entsoe"
 NAME = re.compile(r"^(DE_LU|ES|SE3)_(\d{4}-\d{2}-\d{2})_\w+$")
-CASES = sorted(p for p in FX.glob("*.xml") if NAME.match(p.stem) and not p.stem.endswith("_A01")) if FX.exists() else []
+FUNDAMENTALS = ("_load_actual", "_load_forecast_da", "_generation_actual", "_wind_solar_forecast_da")  # B4a/B4b files
+CASES = sorted(p for p in FX.glob("*.xml") if NAME.match(p.stem) and not p.stem.endswith(("_A01",) + FUNDAMENTALS)) if FX.exists() else []
 
 
 def brute(prices, k):

@@ -38,6 +38,15 @@ entsoe:
     ES: 10YES-REE------0
     SE3: 10Y1001A1001A46L
 
+  # Total load (B4a; sources/entsoe/load.py). Requests: sources/entsoe/requests.py (official guide).
+  load:
+    # Our retry policy, not an ENTSO-E publication commitment: a day still missing intervals
+    # is retried until this many hours after the local day ends, then blocks.
+    publication: {late_after_hours_from_day_end: 48, status: assumed}
+    # ENTSO-E publishes no issue time for the day-ahead load forecast. Backtests use
+    # fetched_at_utc until a sourced availability rule is recorded here.
+    forecast_availability: {rule: null, status: assumed}
+
   request:
     document_type: A44
     # "A01" = daily auction only. Source: voltstack.energy/insights/entsoe-api-guide

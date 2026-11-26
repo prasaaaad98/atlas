@@ -39,4 +39,15 @@ sources:
     # Codes seen so far are the 11 above (saved samples, CISO/ERCO/PJM). The full list
     # comes from EIA's fueltype facet (make fixture-eia saves it); any code not listed
     # here blocks until it's mapped or added to `unmapped` with a reason.
-  eia930_unmapped: {}
+  # In EIA's full fueltype facet (owner's fixture run 2026-11-26) but not in any saved data of
+  # our BAs. Listed = known and explained; if one appears in real data it still BLOCKS until
+  # mapped (never defaults). Proposed mapping, for the owner to confirm:
+  #   PS -> a new canonical `pumped_storage` (storage: true; also fits ENTSO-E B10)
+  #   SNB -> solar, WNB -> wind (integrated battery reported with the plant)
+  #   OES -> other_storage, UNK -> other
+  eia930_unmapped:
+    OES: "Other energy storage: not seen in our BAs' saved data; mapping to confirm"
+    PS: "Pumped storage: not seen in our BAs' saved data; needs a canonical pumped_storage type (owner)"
+    SNB: "Solar with integrated battery storage: not seen in our BAs' saved data; mapping to confirm"
+    UNK: "Unknown: not seen in our BAs' saved data; mapping to confirm"
+    WNB: "Wind with integrated battery storage: not seen in our BAs' saved data; mapping to confirm"
