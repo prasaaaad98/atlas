@@ -23,7 +23,8 @@ NOLIMIT = RateLimiter(rpm=60_000, sleep=lambda s: None)
 
 def test_real_location_config_loads():
     assert [l.id for l in LOCATIONS] == ["entsoe:DE_LU", "entsoe:ES", "entsoe:SE3"]
-    assert all(l.status == "proposed" for l in LOCATIONS)  # until the owner confirms
+    assert all(l.status == "confirmed" for l in LOCATIONS)  # owner, 2026-11-27: compromise points
+    assert [l.label for l in LOCATIONS] == ["Kassel", "Ciudad Real", "Orebro"]
 
 
 def test_location_for_unknown_zone_rejected(tmp_path):

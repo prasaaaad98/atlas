@@ -1,28 +1,34 @@
 # Weather points: one per covered zone (PHASE_AB_PLAN.md B4).
-# STATUS: PROPOSED by Claude Code 2026-11-25. Owner to confirm or replace each point.
-# These are placeholders (one major city per zone), not a documented load- or
-# capacity-weighted choice; the rationale goes in docs/data/sources/openmeteo.md.
-# Coordinates are WGS84 decimal degrees. Open-Meteo snaps them to its model grid.
+# STATUS: CONFIRMED by the owner 2026-11-27: a compromise point between each zone's wind and
+# solar fleet (rationale and sources: docs/data/sources/openmeteo.md, "Locations"):
+#   DE_LU Kassel: between the onshore-wind north (Lower Saxony, NRW, Schleswig-Holstein lead
+#         additions) and the solar south (Bavaria leads), per Bundesnetzagentur/MaStR reporting;
+#   ES    Ciudad Real (Castilla-La Mancha, the 2nd-largest renewable region, REE 2023), between
+#         the Castilla y Leon wind/renewables lead and the Extremadura solar lead;
+#   SE3   Orebro, central SE3 (SE3's solar fleet is small; its wind sits across the zone).
+# A single point cannot represent both technologies well; two points per zone (wind, solar)
+# was considered and declined for now. Coordinates are the town centres, WGS84 decimal
+# degrees; Open-Meteo snaps them to its model grid.
 version: 1
 locations:
   - id: "entsoe:DE_LU"
     market: entsoe
     zone: DE_LU
-    label: Frankfurt am Main
-    latitude: 50.11
-    longitude: 8.68
-    status: proposed
+    label: Kassel
+    latitude: 51.31
+    longitude: 9.48
+    status: confirmed
   - id: "entsoe:ES"
     market: entsoe
     zone: ES
-    label: Madrid
-    latitude: 40.42
-    longitude: -3.70
-    status: proposed
+    label: Ciudad Real
+    latitude: 38.98
+    longitude: -3.93
+    status: confirmed
   - id: "entsoe:SE3"
     market: entsoe
     zone: SE3
-    label: Stockholm
-    latitude: 59.33
-    longitude: 18.07
-    status: proposed
+    label: Orebro
+    latitude: 59.27
+    longitude: 15.21
+    status: confirmed
