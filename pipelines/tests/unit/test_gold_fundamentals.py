@@ -188,8 +188,8 @@ def test_tampered_silver_is_refused(lake, monkeypatch):
 
 def test_definitions_are_validated(tmp_path):
     bad = tmp_path / "f.yaml"
-    bad.write_text("version: 1\nrenewable_fuel_types: [wind, biomass]\nnet_load_subtracts: [solar, wind]\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="biomass"):
+    bad.write_text("version: 1\nrenewable_fuel_types: [wind, peat_moss]\nnet_load_subtracts: [solar, wind]\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="peat_moss"):
         fundamentals.load_definitions(bad)
 
 

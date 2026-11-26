@@ -15,6 +15,10 @@ canonical:
   geothermal: {storage: false}
   battery_storage: {storage: true}
   other_storage: {storage: true}     # storage of unknown technology
+  # Added for ENTSO-E (B4b, 2026-11-26; proposed, owner to confirm):
+  pumped_storage: {storage: true}    # ENTSO-E B10 (EIA's PS once mapped)
+  biomass: {storage: false}          # ENTSO-E B01 (EIA-930 has no separate biomass: inside OTH)
+  other_renewable: {storage: false}  # ENTSO-E B15 "Other renewable"
   other: {storage: false}
 
 # Negative values: EIA-930 reports NET generation (output minus the plant's own use),
@@ -39,6 +43,33 @@ sources:
     # Codes seen so far are the 11 above (saved samples, CISO/ERCO/PJM). The full list
     # comes from EIA's fueltype facet (make fixture-eia saves it); any code not listed
     # here blocks until it's mapped or added to `unmapped` with a reason.
+  # ENTSO-E psrType (official API guide list, copied in sources/entsoe/requests.py). Status:
+  # proposed 2026-11-26, owner to confirm. Codes seen in the saved A75 documents: DE_LU 15,
+  # ES 19 (+B25), SE3 6. Consumption series (outBiddingZone: pumping B10, charging B25) are
+  # stored as negative rows with source_fuel_code "<code>/consumption" (sources/entsoe/generation.py).
+  entsoe:
+    B01: {fuel_type: biomass, negative: warn, name: Biomass}
+    B02: {fuel_type: coal, negative: warn, name: Fossil Brown coal/Lignite}
+    B03: {fuel_type: coal, negative: warn, name: Fossil Coal-derived gas}       # gas made from coal (proposed)
+    B04: {fuel_type: gas, negative: warn, name: Fossil Gas}
+    B05: {fuel_type: coal, negative: warn, name: Fossil Hard coal}
+    B06: {fuel_type: oil, negative: warn, name: Fossil Oil}
+    B07: {fuel_type: oil, negative: warn, name: Fossil Oil shale}              # proposed
+    B08: {fuel_type: other, negative: warn, name: Fossil Peat}                 # no peat type (proposed)
+    B09: {fuel_type: geothermal, negative: warn, name: Geothermal}
+    B10: {fuel_type: pumped_storage, negative: allowed, name: Hydro Pumped Storage}
+    B11: {fuel_type: hydro, negative: warn, name: Hydro Run-of-river and poundage}
+    B12: {fuel_type: hydro, negative: warn, name: Hydro Water Reservoir}
+    B13: {fuel_type: other_renewable, negative: warn, name: Marine}            # proposed
+    B14: {fuel_type: nuclear, negative: warn, name: Nuclear}
+    B15: {fuel_type: other_renewable, negative: warn, name: Other renewable}
+    B16: {fuel_type: solar, negative: warn, name: Solar}
+    B17: {fuel_type: other, negative: warn, name: Waste}                       # proposed
+    B18: {fuel_type: wind, negative: warn, name: Wind Offshore}
+    B19: {fuel_type: wind, negative: warn, name: Wind Onshore}
+    B20: {fuel_type: other, negative: allowed, name: Other}
+    B25: {fuel_type: other_storage, negative: allowed, name: Energy storage}
+  entsoe_unmapped: {}
   # In EIA's full fueltype facet (owner's fixture run 2026-11-26) but not in any saved data of
   # our BAs. Listed = known and explained; if one appears in real data it still BLOCKS until
   # mapped (never defaults). Proposed mapping, for the owner to confirm:

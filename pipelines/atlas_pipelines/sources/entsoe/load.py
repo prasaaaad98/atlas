@@ -35,11 +35,16 @@ UNIT = "MAW"  # megawatt (ENTSO-E unit code)
 
 @dataclass(frozen=True)
 class LoadSeries:
+    """One TimeSeries of a GL_MarketDocument (load A65, generation A75, wind/solar forecast A69).
+    zone_eic = outBiddingZone_Domain (load; for A75 the guide says it marks CONSUMPTION, e.g.
+    pumping or charging), in_eic = inBiddingZone_Domain (A75/A69 generation)."""
     zone_eic: str | None
     unit: str | None
     curve_type: str | None
     business_type: str | None
     periods: tuple[da.Period, ...]
+    in_eic: str | None = None
+    psr_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -85,7 +90,9 @@ def parse_document(raw: bytes) -> LoadDocument | da.Acknowledgement:
                                      da._ts(da._text(p, "timeInterval", "end"), "Period end"),
                                      int(m.group(1)), tuple(points)))
         series.append(LoadSeries(da._text(ts, "outBiddingZone_Domain.mRID"), da._text(ts, "quantity_Measure_Unit.name"),
-                                 da._text(ts, "curveType"), da._text(ts, "businessType"), tuple(periods)))
+                                 da._text(ts, "curveType"), da._text(ts, "businessType"), tuple(periods),
+                                 in_eic=da._text(ts, "inBiddingZone_Domain.mRID"),
+                                 psr_type=da._text(ts, "MktPSRType", "psrType")))
     return LoadDocument(da._text(root, "type"), da._text(root, "process.processType"), tuple(series))
 
 

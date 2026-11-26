@@ -100,7 +100,10 @@ def test_unknown_codes_are_never_silently_dropped():
     assert df.height == 497 and "status_mapped" in failed(cs)  # left out of the frame AND blocking
 
 
-@pytest.mark.skipif(not FULL.exists(), reason="complete 2026-09 month not saved yet (make fixture-eia, step 5)")
+FULL_OK = FULL.exists() and json.loads(FULL.with_name(FULL.stem + ".meta.json").read_text())["http_status"] == 200
+
+
+@pytest.mark.skipif(not FULL_OK, reason="complete 2026-09 month not saved yet (make fixture-eia, step 5; a 504 page may be there)")
 def test_complete_month_golden():
     body = json.loads(FULL.read_text(encoding="utf-8"))["response"]
     rs = body["data"]
