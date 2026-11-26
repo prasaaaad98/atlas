@@ -1,0 +1,35 @@
+# ENTSO-E load, generation and gold schedules (B4a/B4b, ADR-B10). Applied with:
+#   python -m atlas_pipelines schedules apply config/schedules/entsoe.yaml
+# Day-ahead prices have their own owner-run loop (make b7-schedule). Times are our operating
+# choices, not claims about when ENTSO-E publishes. Late intervals (a series published with
+# series_complete = false) are filled by the re-fetches: refetch_after_days d re-runs each
+# partition once, d days after it ended, as a new vintage; gold re-runs after each.
+# Known limit: these tasks fetch actual + forecast together for yesterday, so the forecast
+# vintage is fetched after delivery (fetched_at shows it). A point-in-time forecast needs a
+# separate forecast-only task fetched before the day (follow-up).
+version: 1
+schedules:
+  load_entsoe_daily:
+    why: actual load + day-ahead load forecast for yesterday (local day); +2 and +7 day re-fetches for late intervals and revisions
+    cron: "0 10 * * *"
+    tz: Europe/Brussels
+    offset_days: -1
+    catchup: true
+    start: 2026-11-24
+    refetch_after_days: [2, 7]
+  generation_entsoe_daily:
+    why: generation per type + wind/solar day-ahead forecast for yesterday; same re-fetch policy (patchy series, ADR-B10)
+    cron: "15 10 * * *"
+    tz: Europe/Brussels
+    offset_days: -1
+    catchup: true
+    start: 2026-11-24
+    refetch_after_days: [2, 7]
+  entsoe_gold_daily:
+    why: gold net load + generation mix from silver only, after both ingests; re-built after each silver re-fetch
+    cron: "0 11 * * *"
+    tz: Europe/Brussels
+    offset_days: -1
+    catchup: true
+    start: 2026-11-24
+    refetch_after_days: [2, 7]

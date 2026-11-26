@@ -1,0 +1,12 @@
+# Gold net load and generation mix definitions (ADR-B10, ADR-B09). Loaded by
+# pipelines/atlas_pipelines/gold/net_load.py. status proposed: the owner confirms (docs/data/gold.md).
+version: 1
+status: proposed
+
+# net_load = demand - solar - wind, per kind (actual, forecast) and interval.
+# Declared inputs: demand, plus every generation-direction series of these types present that
+# day, plus the zone's required types from the registry (entsoe.generation.required.forecast,
+# used for both kinds: the wind/solar a zone reports). Missing at an interval -> null there.
+solar_fuel_types: [solar]
+wind_fuel_types: [wind_onshore, wind_offshore]
+required_types_from: entsoe.generation.required.forecast

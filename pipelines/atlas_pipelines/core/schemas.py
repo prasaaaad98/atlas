@@ -253,3 +253,46 @@ def schema_check(df: pl.DataFrame, schema: dict, name: str) -> CheckResult:
         if not nullable and df[col].null_count():
             problems.append(f"{col}: {df[col].null_count()} nulls")
     return CheckResult(f"schema_{name}", "blocking", not problems, {"problems": problems, "rows": df.height})
+
+# gold.net_load (B4 gold, ADR-B10): per zone, kind (actual | forecast) and interval of the local
+# day. Inputs are declared (config/gold/net_load.yaml): demand + every wind/solar series. An
+# interval where any declared input has no value has net_load_mw null and names what is missing;
+# nothing is filled. Uses the latest vintage of each input (fetched_at recorded for lineage).
+NET_LOAD: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, False),
+    "kind": (pl.String, False),
+    "interval_start_utc": (UTC, False),
+    "interval_end_utc": (UTC, False),
+    "interval_minutes": (pl.Int16, False),
+    "local_date": (pl.Date, False),
+    "local_hour": (pl.Int8, False),
+    "demand_mw": (pl.Float64, True),
+    "solar_mw": (pl.Float64, True),           # null if any solar series lacks this interval
+    "wind_mw": (pl.Float64, True),            # onshore + offshore; null if any wind series lacks it
+    "net_load_mw": (pl.Float64, True),        # demand − solar − wind; null exactly where an input is missing
+    "missing_inputs": (pl.String, True),      # comma-separated, e.g. "B18" or "wind_offshore (absent)"; null = none
+    "demand_fetched_at_utc": (UTC, True),     # vintage used
+    "generation_fetched_at_utc": (UTC, True),
+    "demand_source_hash": (pl.String, False),
+    "generation_source_hash": (pl.String, False),
+}
+
+# gold.generation_mix (ADR-B09): generation per gold fuel_group (config/mappings/fuel_types.yaml)
+# so cross-market comparisons don't depend on each market's detail. Direction kept (storage
+# charging is its own row). Null where any series of the group lacks the interval.
+GENERATION_MIX: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, False),
+    "kind": (pl.String, False),
+    "interval_start_utc": (UTC, False),
+    "interval_end_utc": (UTC, False),
+    "interval_minutes": (pl.Int16, False),
+    "local_date": (pl.Date, False),
+    "fuel_group": (pl.String, False),
+    "direction": (pl.String, False),
+    "generation_mw": (pl.Float64, True),
+    "series": (pl.Int16, False),              # series in this group and direction that day
+    "missing_series": (pl.String, True),
+    "generation_source_hash": (pl.String, False),
+}
