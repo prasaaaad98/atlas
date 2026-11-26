@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 demo-e3 ingest-eia
+	demo-b1 fixture-entsoe-a01 ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 demo-e3 demo-e4 ingest-eia ingest-eia-gas
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -127,6 +127,9 @@ demo-e1:       ## offline: real saved EIA responses through the client (paging, 
 demo-e3:       ## offline: real EIA-930 fuel responses -> silver.generation (mapping, gaps, negatives)
 	$(PY) -m pytest -v -c pipelines/pyproject.toml pipelines/tests/unit/test_eia_fuel.py
 
+demo-e4:       ## offline: real EIA Henry Hub response -> silver.fuel_carbon_prices (month partition, weekend/unit/series checks)
+	$(PY) -m pytest -v -c pipelines/pyproject.toml pipelines/tests/unit/test_eia_gas.py
+
 demo-e2:       ## offline: real EIA-930 responses -> silver.demand / silver.interchange (DST, vintages, gaps)
 	$(PY) -m pytest -v -c pipelines/pyproject.toml pipelines/tests/unit/test_eia_region.py
 
@@ -135,6 +138,12 @@ EIA_TO   ?= $(shell date -u -d '2 days ago' +%Y-%m-%d)
 ingest-eia:    ## OWNER-RUN (network, EIA_API_KEY): EIA-930 demand, interchange and generation by fuel, every BA, EIA_FROM..EIA_TO
 	$(ATLAS) run eia930_region_daily --partition $(EIA_FROM) --to $(EIA_TO)
 	$(ATLAS) run eia930_fuel_daily --partition $(EIA_FROM) --to $(EIA_TO)
+	$(ATLAS) catalog
+
+GAS_FROM ?= 2022-04-01
+GAS_TO   ?= $(shell date -u +%Y-%m-01)
+ingest-eia-gas: ## OWNER-RUN (network, EIA_API_KEY): Henry Hub daily spot, one month partition at a time, GAS_FROM..GAS_TO
+	set -e; for m in $$($(PY) scripts/months.py $(GAS_FROM) $(GAS_TO)); do $(ATLAS) run eia_henry_hub_monthly --partition $$m; done
 	$(ATLAS) catalog
 
 FAULT_TESTS = ^(TestKillAfterAckRunIsDurable|TestConcurrentDuplicateSubmitsCreateOneRun|TestConcurrentDifferentKeysOneWinner|TestConcurrentClaimersNeverDoubleClaim|TestConcurrentLastCompletionsFinishTheRun|TestStaleTokenAndReplacedAttemptAreRejected|TestCrashedWorkerTaskIsReRun|TestPausedWorkerCannotOverwriteNewAttempt|TestExpiredLeaseIsFencedBeforeTheReaperRuns|TestReaperSkipsALockedTask|TestExpiriesCountAsAttempts|TestHundredPartitionsWithRandomWorkerDeaths|TestConcurrentParentCompletionsReadyTheChild|TestLimitKeyConcurrencyNeverExceeded|TestRateLimitedFailurePausesKeyAndRecovers|TestTickCrashOrOverlapCreatesEachPartitionOnce|TestEveryLateRunHasExactlyOneMissedEvent|TestFencedOutAttemptsOutputNeverBecomesCurrent|TestFailedBlockingCheckLeavesPointerAndCancelsDependents|TestLongPollClaimWakesOnNotify)$$

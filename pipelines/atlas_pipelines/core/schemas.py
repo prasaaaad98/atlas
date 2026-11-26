@@ -132,6 +132,22 @@ GENERATION: dict[str, tuple[pl.DataType, bool]] = {
     "source_uri": (pl.String, False),
 }
 
+# silver.fuel_carbon_prices (PHASE_AB_PLAN.md §3.3). Key (commodity, hub, trade_date,
+# delivery_period). Vocabulary in config/commodities/*.yaml. Additions: source_series,
+# fetched_at_utc (point-in-time, §3.4a), source_uri lineage (ADR-B02).
+FUEL_CARBON_PRICES: dict[str, tuple[pl.DataType, bool]] = {
+    "commodity": (pl.String, False),
+    "hub": (pl.String, False),
+    "trade_date": (pl.Date, False),
+    "delivery_period": (pl.String, False),
+    "price": (pl.Float64, False),
+    "currency": (pl.String, False),
+    "unit": (pl.String, False),
+    "source_series": (pl.String, False),
+    "fetched_at_utc": (UTC, False),
+    "source_uri": (pl.String, False),
+}
+
 # silver.interchange (EIA plan §4): net interchange per zone and interval.
 INTERCHANGE: dict[str, tuple[pl.DataType, bool]] = {
     "market": (pl.String, False),

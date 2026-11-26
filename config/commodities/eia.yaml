@@ -1,0 +1,28 @@
+# Fuel and carbon price vocabulary and the EIA series we ingest (B4d / E4).
+# silver.fuel_carbon_prices uses only these values. Loaded by sources/eia/gas.py.
+version: 1
+
+vocabulary:
+  commodities: [natural_gas]
+  hubs: [HENRY_HUB]
+  # spot = price for gas traded on the trade date for (next-day) delivery, as EIA reports it
+  delivery_periods: [spot]
+  units: ["USD/MMBtu"]
+
+# EIA API v2 route natural-gas/pri/fut, found by name from EIA's own series facet
+# (owner's fixture run 2026-11-25): "Henry Hub Natural Gas Spot Price (Dollars per Million Btu)".
+series:
+  RNGWHHD:
+    route: natural-gas/pri/fut
+    frequency: daily
+    commodity: natural_gas
+    hub: HENRY_HUB
+    delivery_period: spot
+    currency: USD
+    unit: "USD/MMBtu"
+    source_units: "$/MMBTU"                     # exactly as EIA labels it; anything else blocks
+    source_description_contains: "Henry Hub Natural Gas Spot Price"
+    status: sourced
+    history_start: 2022-04-01
+    # Trade days only: EIA publishes no weekend rows (blocking if one appears). Weekdays
+    # without a price (exchange holidays, gaps) are reported, not filled.
