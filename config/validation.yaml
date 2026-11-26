@@ -1,0 +1,8 @@
+# Layer 3 statistical checks (PHASE_AB_PLAN.md §3.6), shared by every market. All WARN:
+# flagged and reported, never fixed. Values are our starting choices (not market facts);
+# tune them from the daily data-quality report once real history exists.
+version: 1
+trailing:
+  window_days: 28          # earlier partitions compared against (current pointers only)
+  min_history_days: 7      # fewer → the check passes with "insufficient history" (never guesses)
+robust_z_threshold: 8.0    # |0.6745 * (x - median) / MAD| above this is flagged

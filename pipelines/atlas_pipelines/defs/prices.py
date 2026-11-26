@@ -53,6 +53,7 @@ from atlas_pipelines.core.task import CheckResult, Materialization, RetryableTas
 from atlas_pipelines.sources.adapter import revision_check, write_bronze
 from atlas_pipelines.gold import spreads
 from atlas_pipelines.sources.entsoe import day_ahead as da
+from atlas_pipelines.validation import stats
 
 TOKEN_ENV = "ENTSOE_TOKEN"
 _limiters: dict[str, RateLimiter] = {}
@@ -152,6 +153,11 @@ def make_task(market: Market, zone: str, *, opener=None, now: Callable[[], datet
         data_checks = da.checks(df, series, doc, market, local_date)
         if da.publication_pending(data_checks):
             return not_ready("day-ahead series incomplete", data_checks)
+        # Layer 3 (B6, warn): against the current silver of the trailing days.
+        vcfg = stats.load_config()
+        history = stats.trailing_frames(ctx, f"silver.{silver_dataset}", local_date, vcfg["trailing"]["window_days"])
+        data_checks += [stats.outlier_check("price_outliers", df, "price", history, vcfg),
+                        stats.day_structure_check("price_day_structure", df, history, vcfg)]
 
         out = attempt_dir(ctx.lake_root, "silver", silver_dataset, "date", ctx.partition_key, ctx.attempt_id)
         path = out / "part-0.parquet"

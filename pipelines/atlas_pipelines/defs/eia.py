@@ -37,6 +37,7 @@ from atlas_pipelines.core.markets import Market, iso_utc
 from atlas_pipelines.core.pipeline import Pipeline, TaskDef
 from atlas_pipelines.core.task import CheckResult, Materialization, RetryableTaskError, TaskContext
 from atlas_pipelines.gold import fundamentals
+from atlas_pipelines.validation import stats
 from atlas_pipelines.sources import fuels
 from atlas_pipelines.sources.eia import client, fuel, gas, region, storage
 
@@ -110,6 +111,12 @@ def make_region_task(market: Market, ba: str, *, opener=None, now: Callable[[], 
         previous = _current_frame(ctx, f"silver.{demand_ds}")
         demand = region.carry_vintages(demand, previous)
         data_checks = region.demand_checks(demand, f.rows, day, previous) + [revision_check(demand, previous)]
+        # Layer 3 (B6, warn; EIA plan §5 "outliers: flag, never fix"): actual demand vs trailing days.
+        vcfg = stats.load_config()
+        history = [h.filter(pl.col("kind") == "actual")
+                   for h in stats.trailing_frames(ctx, f"silver.{demand_ds}", day, vcfg["trailing"]["window_days"])]
+        data_checks.append(stats.outlier_check("demand_outliers", demand.filter(pl.col("kind") == "actual"),
+                                               "demand_mw", history, vcfg))
         if region.incomplete_only(data_checks) and now() < region.publication_deadline(market, day):
             raise RetryableTaskError("source_not_ready", f"eia {ba} {ctx.partition_key}: hours still missing",
                                      retry_after_s=1800, materializations=mats, checks=results + data_checks)
