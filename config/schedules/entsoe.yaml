@@ -35,3 +35,11 @@ schedules:
     catchup: true
     start: 2026-11-28
     refetch_after_days: [2, 7]
+  balancing_entsoe_daily:
+    why: reserve capacity (decided the day before) + imbalance prices (published after delivery) for yesterday; +2/+7 day re-fetches for late or intermediate imbalance values (B4c)
+    cron: "45 10 * * *"
+    tz: Europe/Brussels
+    offset_days: -1
+    catchup: true
+    start: 2026-11-28
+    refetch_after_days: [2, 7]

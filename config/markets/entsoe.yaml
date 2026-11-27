@@ -63,6 +63,33 @@ entsoe:
         SE3: [solar, wind_onshore]
       actual: {}
 
+  balancing:
+    # B4c (owner scope 2026-11-27): reserve capacity (17.1.B&C) + imbalance prices (17.1.G).
+    # Areas = where ENTSO-E actually publishes each item (real answers, 2026-11-27; every code is a
+    # Scheduling Area in ENTSO-E's EIC register, as the guide requires). Germany procures reserves
+    # per TSO area (50Hertz, Amprion, TenneT, TransnetBW).
+    areas:
+      reserves:
+        DE_LU: [10YDE-VE-------2, 10YDE-RWENET---I, 10YDE-EON------1, 10YDE-ENBW-----N]
+        ES: [10YES-REE------0]
+        SE3: [10Y1001A1001A46L]
+      imbalance:
+        ES: [10YES-REE------0]
+        SE3: [10Y1001A1001A46L]
+    # Owner decision 2026-11-27: not pursued; ENTSO-E is used as is.
+    deferred:
+      imbalance:
+        DE_LU: "No 17.1.G data under DE_LU or any of the 4 TSO areas (probe 2026-11-18, fetched 2026-11-27)."
+    # Imbalance: the answers state price_Measure_Unit MWH with currency EUR. Reserves: the answers
+    # state quantity MAW (MW) and currency EUR but no price unit or period, so the unit is recorded
+    # as sent and flagged until confirmed (warn check unit_confirmed).
+    units:
+      imbalance: {unit: EUR/MWh, status: sourced}
+      reserves: {unit: "EUR/MW (period not stated in the answer)", status: unconfirmed}
+    # Our retry policy, not an ENTSO-E commitment: an answer with no data is retried until this
+    # many hours after the local day ends.
+    publication: {late_after_hours_from_day_end: 48, status: assumed}
+
   request:
     document_type: A44
     # "A01" = daily auction only. Source: voltstack.energy/insights/entsoe-api-guide

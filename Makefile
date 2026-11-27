@@ -16,7 +16,7 @@ MIGRATE := docker run --rm -v "$(CURDIR)/migrations:/migrations" migrate/migrate
 	-path=/migrations -database "postgres://atlas:atlas@host.docker.internal:5432/atlas?sslmode=disable"
 
 .PHONY: up down reset migrate migrate-down psql build test test-race vet fmt demo-a0 	pipelines-venv pipelines-test pipelines-run lake-catalog demo-b0 fixture-openmeteo \
-	demo-b1 fixture-entsoe-a01 fixture-entsoe-fundamentals ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 demo-e3 demo-e4 demo-e5 demo-e6 e6-backfill e6-schedule demo-e7 gold-eia e7-charts demo-b6 demo-b4ab demo-b10 fixture-entsoe-balancing gold-entsoe entsoe-schedule ingest-entsoe-fundamentals ingest-eia ingest-eia-gas ingest-eia-storage
+	demo-b1 fixture-entsoe-a01 fixture-entsoe-fundamentals ingest-entsoe demo-a2 demo-a3 demo-a4 demo-a5 demo-a6 demo-a7 demo-a8 demo-a9 load-throughput load-dispatch demo-b7 b7-backfill b7-schedule fault fixture-eia calendar demo-b4e demo-e1 demo-e2 demo-e3 demo-e4 demo-e5 demo-e6 e6-backfill e6-schedule demo-e7 gold-eia e7-charts demo-b6 demo-b4ab demo-b10 fixture-entsoe-balancing demo-b4c ingest-entsoe-balancing gold-entsoe entsoe-schedule ingest-entsoe-fundamentals ingest-eia ingest-eia-gas ingest-eia-storage
 
 # Python: use the project venv if it exists (`make pipelines-venv`), else `python` on PATH.
 VENV_PY := $(firstword $(wildcard pipelines/.venv/Scripts/python.exe pipelines/.venv/bin/python))
@@ -250,6 +250,13 @@ demo-b4ab:     ## offline: ENTSO-E load + generation on the owner's real local-o
 ingest-entsoe-fundamentals: ## OWNER-RUN (network, ENTSOE_TOKEN): load + generation FROM..TO for all zones into the local lake
 	$(ATLAS) run load_entsoe_daily --partition $(FROM) --to $(TO)
 	$(ATLAS) run generation_entsoe_daily --partition $(FROM) --to $(TO)
+	$(ATLAS) catalog
+
+demo-b4c:      ## offline: ENTSO-E reserve capacity + imbalance prices on the real local-only answers (codes from the official code list)
+	$(PY) -m pytest -v -c pipelines/pyproject.toml pipelines/tests/golden/test_entsoe_balancing_golden.py pipelines/tests/unit/test_entsoe_balancing_pipeline.py
+
+ingest-entsoe-balancing: ## OWNER-RUN (network, ENTSOE_TOKEN): reserves + imbalance prices FROM..TO for all zones into the local lake
+	$(ATLAS) run balancing_entsoe_daily --partition $(FROM) --to $(TO)
 	$(ATLAS) catalog
 
 gold-entsoe:   ## offline: gold net load + generation mix from the ENTSO-E silver in the lake, FROM..TO (after ingest-entsoe-fundamentals)

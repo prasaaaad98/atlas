@@ -9,7 +9,7 @@ from conftest import REPO
 def test_entsoe_schedules_name_real_pipelines_and_refetch():
     specs = load_schedules(REPO / "config" / "schedules" / "entsoe.yaml")
     pipelines = build_pipelines(load_registry(REPO / "config" / "markets"))
-    assert set(specs) == {"load_entsoe_daily", "generation_entsoe_daily", "entsoe_gold_daily"} <= set(pipelines)
+    assert set(specs) == {"load_entsoe_daily", "generation_entsoe_daily", "entsoe_gold_daily", "balancing_entsoe_daily"} <= set(pipelines)
     for name, spec in specs.items():
         assert spec["tz"] == "Europe/Brussels", name
         schedule_body(spec)  # the body the control plane receives builds without error

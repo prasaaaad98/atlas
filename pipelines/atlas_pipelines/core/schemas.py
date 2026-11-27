@@ -319,3 +319,29 @@ BLOCK_PROFILES: dict[str, tuple[pl.DataType, bool]] = {
     "source_content_hash": (pl.String, False),
     "definition_version": (pl.String, False),
 }
+
+# silver.ancillary_prices (PHASE_AB_PLAN.md §3.3, B4c; ENTSO-E design note 2026-11-27): the plan's
+# columns plus what real ENTSO-E answers need: area_eic (German reserves are published per TSO
+# area), quantity_mw (reserve capacity procured), price_type, doc_status (imbalance final vs
+# intermediate), decided_at_utc (the reserve auction's allocation decision = when it was known;
+# two FCR auctions can serve one SE3 day). Key: (product, area_eic, decided_at_utc, interval_start_utc).
+ANCILLARY_PRICES: dict[str, tuple[pl.DataType, bool]] = {
+    "market": (pl.String, False),
+    "zone": (pl.String, False),
+    "area_eic": (pl.String, False),
+    "product": (pl.String, False),            # e.g. fcr_capacity_up_down, afrr_capacity_up, imbalance_excess
+    "interval_start_utc": (UTC, False),
+    "interval_end_utc": (UTC, False),
+    "interval_minutes": (pl.Int16, False),
+    "local_date": (pl.Date, False),
+    "price": (pl.Float64, False),
+    "currency": (pl.String, False),
+    "unit": (pl.String, False),               # from the registry (entsoe.balancing.units)
+    "quantity_mw": (pl.Float64, True),        # reserves: capacity procured; imbalance: null
+    "price_type": (pl.String, False),         # marginal | average_bid | imbalance
+    "doc_status": (pl.String, True),          # imbalance: final | intermediate; reserves: null
+    "decided_at_utc": (UTC, True),            # reserves: auction decision time; imbalance: null
+    "fetched_at_utc": (UTC, False),
+    "series_complete": (pl.Boolean, False),   # ADR-B10
+    "source_uri": (pl.String, False),
+}
